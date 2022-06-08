@@ -1,4 +1,5 @@
-package trend
+package bots
+
 import scala.collection.mutable
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -71,9 +72,9 @@ def backtrace(klines15: List[Kline], dayDirection: Int): (List[Kline], Int) = {
     return (List.empty, 0)
   }
   val dayTrend = dayDirection
-  // 最后一根15min趋势
+  // 最后一根K趋势
   val trend1 = direction(klines15)
-  // 倒数第二根15min趋势
+  // 倒数第二根K趋势
   val trend2 = direction(klines15.tail)
 
   // 存在一个无势则返回中性
@@ -87,9 +88,10 @@ def backtrace(klines15: List[Kline], dayDirection: Int): (List[Kline], Int) = {
   }
 
   // 小势逆大势， 中性
-  // if (trend1 != dayTrend) {
-  //   return (List.empty, 0)
-  // }
+  if (trend1 != dayTrend) {
+    return (List.empty, 0)
+  }
+
   // 小势顺大势，继续往前回溯结构
   // 往前应有一个逆势结构
   val retraceTrend = -trend1
@@ -100,6 +102,9 @@ def backtrace(klines15: List[Kline], dayDirection: Int): (List[Kline], Int) = {
   if (retraceResult.length == 0) {
     throw Exception("no retrace found: " + klinesForRetrace)
   }
+  // if (retraceResult.length < 3) {
+  //   return (List.empty, 0)
+  // }
   // 保证还有足够的趋势发动阶段, 回调段+反转K + 初始段（3根上涨， 至少需要8根K线）
   if (klines15.length < retraceResult.length + 1 + 8) {
     return (List.empty, 0)
@@ -112,15 +117,20 @@ def backtrace(klines15: List[Kline], dayDirection: Int): (List[Kline], Int) = {
   if (initTrendResult.length < 3) {
     return (List.empty, 0)
   }
-  //  todo检查回调极值点是否有超过趋势起点
+  // 第一波涨幅足够
+  if((initTrendResult.head.close - initTrendResult.last.close).abs < initTrendResult.last.close * 0.02) {
+    // println("第一波力度不够， 忽略" + initTrendResult.map(_.close).max + " . " + initTrendResult.map(_.close).min)
+    return (List.empty, 0)
+  }
+  // 检查回调极值点是否有超过趋势起点
   if (trend1 == 1) {
     // 回调过深， 不成立
-    if (initTrendResult.map(_.low).min > retraceResult.map(_.low).min) {
+    if (initTrendResult.map(_.low).min > retraceResult(0).close) {
       return (List.empty, 0)
     }
     return ((retraceResult ++ initTrendResult).prepended(klines15.head), 1)
   } else {
-    if (initTrendResult.map(_.high).max < retraceResult.map(_.high).max) {
+    if (initTrendResult.map(_.high).max < retraceResult(0).close) {
       return (List.empty, 0)
     }
     return ((retraceResult ++ initTrendResult).prepended(klines15.head), -1)
