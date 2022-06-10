@@ -9,7 +9,7 @@ import java.time.LocalDate
 def getSymbol5minK(symbol: String): List[Kline] = {
   val response = quickRequest
     .get(
-      uri"http://127.0.0.1:8080/api/public/futures_zh_minute_sina?symbol=${symbol}&period=15min"
+      uri"http://127.0.0.1:8080/api/public/futures_zh_minute_sina?symbol=${symbol}&period=5min"
     )
     .send(backend)
   response.body
@@ -53,12 +53,9 @@ def getSymbolDayK(symbol: String): List[Kline] = {
     bot.step(k)
   })
   
-  bot.kdj.foreach(item => {
-    println(s"time: ${item.kline.datetime} k:${item.k}, d:${item.d}, j:${item.j}")
-  })
-  
-  // println("holding profit: " + bot.holdingProfit)
+  println("holding profit: " + bot.holdingProfit)
 
-  // println("closed positions: " + bot.closed.length)
-  // println("closed profit: " + bot.closedProfit)
+  println("closed positions: " + bot.closed.length)
+  println("closed profit: " + bot.closedProfit)
+  // bot.closed.sortBy(_.profit.doubleValue).foreach(println)
 }

@@ -113,7 +113,7 @@ abstract class Bot() {
   }
 
   def closedProfit = {
-    closed.map(item => item.profit - 1).sum
+    closed.map(item => item.profit).sum
 
   }
 }
