@@ -25,14 +25,16 @@ case class HttpKline(
     open: BigDecimal,
     high: BigDecimal,
     low: BigDecimal,
-    close: BigDecimal
+    close: BigDecimal,
+    hold: BigDecimal
 )
 case class HttpDayKline(
     date: String,
     open: BigDecimal,
     high: BigDecimal,
     low: BigDecimal,
-    close: BigDecimal
+    close: BigDecimal,
+    hold: BigDecimal,
 )
 
 case class Kline(
@@ -40,7 +42,8 @@ case class Kline(
     open: BigDecimal,
     high: BigDecimal,
     low: BigDecimal,
-    close: BigDecimal
+    close: BigDecimal,
+    hold: BigDecimal,
 )
 
 case class DayKline(

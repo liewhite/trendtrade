@@ -6,7 +6,7 @@ import io.github.liewhite.json.{*, given}
 import java.time.LocalDateTime
 import java.time.LocalDate
 
-def getSymbol15minK(symbol: String): List[Kline] = {
+def getSymbol5minK(symbol: String): List[Kline] = {
   val response = quickRequest
     .get(
       uri"http://127.0.0.1:8080/api/public/futures_zh_minute_sina?symbol=${symbol}&period=15min"
@@ -20,7 +20,8 @@ def getSymbol15minK(symbol: String): List[Kline] = {
         item.open,
         item.high,
         item.low,
-        item.close
+        item.close,
+        item.hold,
       )
     )
 }
@@ -30,6 +31,7 @@ def getSymbolDayK(symbol: String): List[Kline] = {
       uri"http://127.0.0.1:8080/api/public/futures_zh_daily_sina?symbol=${symbol}"
     )
     .send(backend)
+  // println(response.body)
   val dk = response.body.fromJsonMust[List[HttpDayKline]]
   dk.map(item =>
     Kline(
@@ -37,19 +39,26 @@ def getSymbolDayK(symbol: String): List[Kline] = {
       item.open,
       item.high,
       item.low,
-      item.close
+      item.close,
+      item.hold,
     )
   )
 }
 
 
-@main def hello: Unit = {
-  val ks15 = getSymbol15minK("CF2209")
-  val bot = MaBot()
+@main def main: Unit = {
+  val ks15 = getSymbol5minK("CF2209")
+  val bot = MaMacdKdjBot()
   ks15.foreach(k => {
     bot.step(k)
   })
-  println("holding profit: " + bot.holdingProfit)
   
-  println("closed profit: " + bot.closedProfit)
+  bot.kdj.foreach(item => {
+    println(s"time: ${item.kline.datetime} k:${item.k}, d:${item.d}, j:${item.j}")
+  })
+  
+  // println("holding profit: " + bot.holdingProfit)
+
+  // println("closed positions: " + bot.closed.length)
+  // println("closed profit: " + bot.closedProfit)
 }

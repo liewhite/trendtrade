@@ -2,7 +2,6 @@ package bots
 
 
 class TrendBot() extends Bot {
-  def maIntervals = Vector(20)
   // 盈利超过2%则止损拉到成本线
   // 超过5%则回撤30%止盈
   def updateMustNotLoss(k15: Kline) = {
@@ -86,7 +85,7 @@ class TrendBot() extends Bot {
     // 做多则以结构最高点,或者固定回撤止损
       List(ks.map(_.high).max).appended(k15.close * 1.02).min
     }
-    val open = Hold(k15.datetime, trend, k15.close, stopLoss)
+    val open = Hold(k15.datetime, trend, k15.close, stopLoss,k15)
     println(s"open: ${open}")
     holding = holding.appended(open)
   }
