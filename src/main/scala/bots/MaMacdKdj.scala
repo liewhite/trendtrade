@@ -84,7 +84,8 @@ class MaMacdKdjBot() extends Bot {
   }
 
   def ma = mas(20)
-  // 均线导数
+
+  // 均线导数, 连续3根加速
   def maDirection: Int = {
     val ma = mas(20)
     if (ma.length < 3) {
