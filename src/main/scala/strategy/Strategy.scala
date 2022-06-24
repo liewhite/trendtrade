@@ -9,33 +9,42 @@ case class Kline(
     high: BigDecimal,
     low: BigDecimal,
     close: BigDecimal,
-    hold: BigDecimal
+    vol: BigDecimal,
 )
 
 abstract class AStrategy {
-  val klines: mutable.ListBuffer[Kline] = mutable.ListBuffer.empty
-  def step(k: Kline): Unit
+  def step(k: Kline, history: Boolean = false): Unit
 }
 
-class Strategy extends AStrategy {
-  def step(k: Kline): Unit = {
+class BaseStrategy extends AStrategy{
+  override def step(k: Kline, history: Boolean = false): Unit = {
+  }
+}
+
+trait KlineMixin extends AStrategy {
+  val klines: mutable.ListBuffer[Kline] = mutable.ListBuffer.empty
+  abstract override def step(k: Kline, history: Boolean = false): Unit = {
+    super.step(k)
     klines.prepend(k)
   }
 }
 
 trait MaMixin(intervals: Vector[Int]) extends AStrategy {
+  KL: KlineMixin =>
   val mas: mutable.Map[Int, mutable.ListBuffer[BigDecimal]] = mutable.Map.from(
     intervals
       .map(i => {
         (i, mutable.ListBuffer.empty[BigDecimal])
       })
   )
-  abstract override def step(k: Kline): Unit = {
+  abstract override def step(k: Kline, history: Boolean = false): Unit = {
     super.step(k)
     intervals.foreach(interval => {
       val ks = klines.slice(0, interval)
-      val avg = ks.map(_.close).sum / ks.length
-      mas(interval).prepend(avg)
+      if(ks.length != 0) {
+        val avg = ks.map(_.close).sum / ks.length
+        mas(interval).prepend(avg)
+      }
     })
   }
 }
@@ -59,9 +68,10 @@ case class Macd(
 }
 
 trait MacdMixin(fast: Int = 12, slow: Int = 26) extends AStrategy {
+  KL: KlineMixin =>
   val macd: mutable.ListBuffer[Macd] = mutable.ListBuffer.empty
 
-  abstract override def step(k: Kline): Unit = {
+  abstract override def step(k: Kline, history: Boolean = false): Unit = {
     super.step(k)
     if(klines.length == 1) {
       macd.prepend(Macd(k.close, k.close, 0, 0, 0))
@@ -80,9 +90,10 @@ case class Kdj(
 )
 
 trait KdjMixin(arg1: Int=9, arg2: Int = 3, arg3: Int= 3) extends AStrategy {
+  KL: KlineMixin =>
   val kdj: mutable.ListBuffer[Kdj] = mutable.ListBuffer.empty
 
-  abstract override def step(k: Kline): Unit = {
+  abstract override def step(k: Kline, history: Boolean = false): Unit = {
     super.step(k)
     if(klines.length < 10) {
       return

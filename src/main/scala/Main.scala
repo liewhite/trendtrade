@@ -36,26 +36,13 @@ def getSymbol5minK(symbol: String): List[Kline] = {
     )
 }
 
-class Bot extends Strategy with MaMixin(Vector(5,10,20)) with MacdMixin(12,26) with KdjMixin(9,3,3) {
-  override def step(k: strategy.Kline): Unit = {
-    super.step(k)
-    println(mas)
-    println(macd)
-    println(kdj)
-  }
-}
-
 @main def main: Unit = {
-  val ks15 = getSymbol5minK("CF2209")
-  val bot = Bot()
+  val ks15 = getSymbol5minK("FU2209")
+  val bot = GridStrategy(72, 0.001, 20)
   ks15.foreach(k => {
     bot.step(k)
   })
-
-  // println("holding profit: " + bot.holdingProfit)
-
-  // println("closed positions: " + bot.closed.length)
-  // println("closed profit: " + bot.closedProfit)
-  // bot.closed.sortBy(_.profit.doubleValue).foreach(println)
+  val profit = bot.closed.map(item => (item.closeAt.get - item.openAt) * item.direction).sum
+  println(s"tx count: ${bot.closed.length} , total profit:" + profit)
 }
 
