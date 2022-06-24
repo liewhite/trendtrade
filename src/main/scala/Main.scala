@@ -13,7 +13,8 @@ case class HttpKline(
     high: BigDecimal,
     low: BigDecimal,
     close: BigDecimal,
-    hold: BigDecimal
+    hold: BigDecimal,
+    volume: BigDecimal
 )
 
 def getSymbol5minK(symbol: String): List[Kline] = {
@@ -31,14 +32,15 @@ def getSymbol5minK(symbol: String): List[Kline] = {
         item.high,
         item.low,
         item.close,
-        item.hold
+        item.volume
       )
     )
 }
 
 @main def main: Unit = {
-  val ks15 = getSymbol5minK("FU2209")
-  val bot = GridStrategy(72, 0.001, 20)
+  val ks15 = getSymbolK("GALUSDT","5m")
+  // tickPercent 设置为interval波动的大概幅度即可
+  val bot = GridStrategy(200, 0.01, 1)
   ks15.foreach(k => {
     bot.step(k)
   })

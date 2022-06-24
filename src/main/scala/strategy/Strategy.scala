@@ -29,6 +29,39 @@ trait KlineMixin extends AStrategy {
   }
 }
 
+trait VolMaMixin(intervals: Vector[Int]) extends AStrategy {
+  KL: KlineMixin =>
+  val volMas: mutable.Map[Int, mutable.ListBuffer[BigDecimal]] = mutable.Map.from(
+    intervals
+      .map(i => {
+        (i, mutable.ListBuffer.empty[BigDecimal])
+      })
+  )
+  abstract override def step(k: Kline, history: Boolean = false): Unit = {
+    super.step(k)
+    intervals.foreach(interval => {
+      val ks = klines.slice(0, interval)
+      if(ks.length != 0) {
+        val avg = ks.map(_.vol).sum / ks.length
+        volMas(interval).prepend(avg)
+      }
+    })
+  }
+  def volMaDirection(interval : Int): Int = {
+    if(volMas(interval).length < 2) {
+      0
+    }else{
+      if(volMas(interval)(0) > volMas(interval)(1)) {
+        1
+      } else if(volMas(interval)(0) < volMas(interval)(1))  {
+        -1
+      }else{
+        0
+      }
+    }
+  } 
+}
+
 trait MaMixin(intervals: Vector[Int]) extends AStrategy {
   KL: KlineMixin =>
   val mas: mutable.Map[Int, mutable.ListBuffer[BigDecimal]] = mutable.Map.from(
