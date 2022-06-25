@@ -22,14 +22,15 @@ case class Position(
 // 无持仓或者持有反向仓位时， 往上突破阻力带开多，往下突破阻力带反手开空
 // tickPercent: 模拟压力时的步长
 // tickThreshold: 模拟压力时的步数
-class GridStrategy(historyLength: Int, tickPercent: Double, tickThreshold: Int)
+class GridStrategy(historyLength: Int)
     extends BaseStrategy
     with KlineMixin with VolMaMixin(Vector(5)) {
   val position = mutable.ListBuffer.empty[Position]
   val closed = mutable.ListBuffer.empty[Position]
 
   // 计算某个价位的阻力值
-  // k线阻力= sum(成交量 * 0.99^距离) / k线数量
+  // 某个价位的阻力= sum(成交量 * 0.99^距离) / k线数量
+  // 原理是某个价位容易放量， 则大概率是阻力位
   def pressureAtPrice(price: BigDecimal): BigDecimal = {
     val ks =
       klines.zipWithIndex.filter((k, i) => k.high > price && k.low < price)
@@ -37,10 +38,11 @@ class GridStrategy(historyLength: Int, tickPercent: Double, tickThreshold: Int)
       0
     } else {
       val df = ks.map { case (k, i) =>
-        k.vol * BigDecimal(0.99).pow(i)
+        // k.vol * BigDecimal(0.99).pow(i)
+        k.vol
       }.sum
       // println(s"price pressure: ${price} .  ${df}")
-      df
+      df / ks.length
     }
   }
 
@@ -67,6 +69,7 @@ class GridStrategy(historyLength: Int, tickPercent: Double, tickThreshold: Int)
 
   override def step(k: Kline, history: Boolean = false): Unit = {
     super.step(k)
+    // println(k)
     // 没有达到历史数据长度要求， 不划分网格，不进行交易
     if (klines.length < historyLength) {
       return
@@ -86,24 +89,25 @@ class GridStrategy(historyLength: Int, tickPercent: Double, tickThreshold: Int)
       return
     }
 
-    val currentPressure = pressureAtPrice(k.close)
+    val entitySize = ((k.close - k.open) / k.open).abs
+
+    val entities = klines.slice(1,21).map(item => {
+      (item.close - item.open).abs / item.open
+    })
+
+    val avgEntitySize = entities.sum / entities.length
+    // k线实体大于过去一段时间的平均的3倍， 视为趋势开始
+    if(entitySize <= avgEntitySize * 2) {
+      return
+    }
+
+    val lowPressure = pressureAtPrice(k.low)
+    val highPressure = pressureAtPrice(k.high)
     val direction = ((klines(0).close - klines(1).close).abs / (klines(
       0
     ).close - klines(1).close)).intValue
 
-    val futurePressure = Range(0, tickThreshold)
-      .map(tick => {
-        val price =
-          k.close * math.pow(math.pow(tickPercent + 1, tick + 1), direction)
-        val prs = pressureAtPrice(price)
-        prs
-      })
-      .sum / tickThreshold
-
-    // 进入成交稀疏区
-    // 且成交量均线向上
-    if (currentPressure > futurePressure * 1.2 && volMaDirection(5) > 0) {
-      // 如果有持仓， 则判断方向， 不一致需要反手
+    if( (direction == 1 && highPressure > lowPressure * 1.2) || (direction == -1 && lowPressure > highPressure * 1.2)) {
       if (position.nonEmpty) {
         if (position(0).direction != direction) {
           closeCurrent()

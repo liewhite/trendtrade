@@ -40,7 +40,7 @@ def getSymbol5minK(symbol: String): List[Kline] = {
 @main def main: Unit = {
   val ks15 = getSymbolK("GALUSDT","5m")
   // tickPercent 设置为interval波动的大概幅度即可
-  val bot = GridStrategy(200, 0.01, 1)
+  val bot = GridStrategy(200)
   ks15.foreach(k => {
     bot.step(k)
   })
