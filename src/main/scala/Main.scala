@@ -38,13 +38,13 @@ def getSymbol5minK(symbol: String): List[Kline] = {
 }
 
 @main def main: Unit = {
-  val ks15 = getSymbolK("GALUSDT","5m")
+  val ks15 = getSymbolK("ETHUSDT","5m")
   // tickPercent 设置为interval波动的大概幅度即可
   val bot = GridStrategy(200)
   ks15.foreach(k => {
     bot.step(k)
   })
-  val profit = bot.closed.map(item => (item.closeAt.get - item.openAt) * item.direction).sum
+  val profit = bot.closed.map(item => (item.closeAt.get - item.openAt) * item.direction - item.openAt * 0.00072).sum
   println(s"tx count: ${bot.closed.length} , total profit:" + profit)
 }
 

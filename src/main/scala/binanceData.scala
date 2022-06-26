@@ -11,7 +11,7 @@ val rootUrl = "https://fapi.binance.com"
 
 def getSymbolK(symbol: String, interval: String) = {
   val endTime = ZonedDateTime.now()
-  val startTime = endTime.minusDays(15)
+  val startTime = endTime.minusDays(5)
 
   val startTs = startTime.toInstant().toEpochMilli
   val endTs = endTime.toInstant().toEpochMilli
@@ -22,7 +22,7 @@ def getSymbolK(symbol: String, interval: String) = {
     )
     .header(
       "X-MBX-APIKEY",
-      "HOPEvPkEmARRPJ2Vw8MQvXGDnA9nclxRqbGWODC8NzVD79wSOdHsn6YwX7nSjYG6"
+      "xxx"
     )
     .send(backend)
 
