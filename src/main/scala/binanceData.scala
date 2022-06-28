@@ -9,50 +9,51 @@ import java.time.ZonedDateTime
 
 val rootUrl = "https://fapi.binance.com"
 
-def getSymbolK(symbol: String, interval: String) = {
+def getSymbolK(symbol: String, interval: String): List[Kline] = {
   val endTime = ZonedDateTime.now()
-  val startTime = endTime.minusDays(5)
-
-  val startTs = startTime.toInstant().toEpochMilli
-  val endTs = endTime.toInstant().toEpochMilli
-
-  val response = quickRequest
-    .get(
-      uri"$rootUrl/fapi/v1/continuousKlines?pair=${symbol}&startTime=${startTs}&endTime=${endTs}&limit=1500&contractType=PERPETUAL&interval=${interval}"
-    )
-    .header(
-      "X-MBX-APIKEY",
-      "xxx"
-    )
-    .send(backend)
-
-  response.body
-    .fromJsonMust[List[
-      (
-          Long,
-          String,
-          String,
-          String,
-          String,
-          String,
-          Long,
-          String,
-          Long,
-          String,
-          String,
-          String
+  val startTime = endTime.minusDays(30)
+  Range(0, 30).map(i => {
+    val st = startTime.plusDays(i)
+    val et = st.plusDays(1)
+    val startTs = st.toInstant().toEpochMilli
+    val endTs = et.toInstant().toEpochMilli
+    val response = quickRequest
+      .get(
+        uri"$rootUrl/fapi/v1/continuousKlines?pair=${symbol}&startTime=${startTs}&endTime=${endTs}&contractType=PERPETUAL&interval=${interval}"
       )
-    ]]
-    .map(item =>
-      Kline(
-        LocalDateTime
-          .ofInstant(Instant.ofEpochMilli(item._1), ZoneId.systemDefault),
-        BigDecimal(item._2),
-        BigDecimal(item._3),
-        BigDecimal(item._4),
-        BigDecimal(item._5),
-        BigDecimal(item._6)
+      .header(
+        "X-MBX-APIKEY",
+        "HOPEvPkEmARRPJ2Vw8MQvXGDnA9nclxRqbGWODC8NzVD79wSOdHsn6YwX7nSjYG6"
       )
-    )
+      .send(backend)
 
+    response.body
+      .fromJsonMust[List[
+        (
+            Long,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Long,
+            String,
+            Long,
+            String,
+            String,
+            String
+        )
+      ]]
+      .map(item =>
+        Kline(
+          LocalDateTime
+            .ofInstant(Instant.ofEpochMilli(item._1), ZoneId.systemDefault),
+          BigDecimal(item._2),
+          BigDecimal(item._3),
+          BigDecimal(item._4),
+          BigDecimal(item._5),
+          BigDecimal(item._6)
+        )
+      )
+  }).flatten.toList
 }

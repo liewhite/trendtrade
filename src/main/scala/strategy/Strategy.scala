@@ -62,7 +62,7 @@ trait VolMaMixin(intervals: Vector[Int]) extends AStrategy {
   } 
 }
 
-trait MaMixin(intervals: Vector[Int]) extends AStrategy {
+trait MaMixin(intervals: Vector[Int] = Vector(5,10,20)) extends AStrategy {
   KL: KlineMixin =>
   val mas: mutable.Map[Int, mutable.ListBuffer[BigDecimal]] = mutable.Map.from(
     intervals
@@ -84,32 +84,33 @@ trait MaMixin(intervals: Vector[Int]) extends AStrategy {
 
 
 case class Macd(
+  datetime: LocalDateTime,
   ema12: BigDecimal,
   ema26: BigDecimal,
   diff: BigDecimal,
   dea: BigDecimal,
   bar: BigDecimal
 ){
-  def next(price: BigDecimal, emaa: Int,emab: Int): Macd = {
-    val e12 = ema12 * (emaa - 1) / (emaa + 1) + price * 2 / (emaa + 1)
-    val e26 = ema26 * (emab - 1) / (emab + 1) + price * 2 / (emab +1)
+  def next(k: Kline, price: BigDecimal, short: Int,long: Int, mid: Int): Macd = {
+    val e12 = ema12 * (short - 1) / (short + 1) + price * 2 / (short + 1)
+    val e26 = ema26 * (long - 1) / (long + 1) + price * 2 / (long +1)
     val newDif = e12 - e26
-    val newDea = this.dea * 8 / 10 + newDif * 2 / 10
-    val b = 2 *(newDif - newDea)
-    Macd(e12,e26,newDif,newDea,b)
+    val newDea = this.dea * (mid - 1) / (mid + 1) + newDif * 2 / (mid + 1)
+    val b = (newDif - newDea)
+    Macd(k.datetime ,e12,e26,newDif,newDea,b)
   }
 }
 
-trait MacdMixin(fast: Int = 12, slow: Int = 26) extends AStrategy {
+trait MacdMixin(fast: Int = 12, slow: Int = 26 ,mid: Int = 9) extends AStrategy {
   KL: KlineMixin =>
   val macd: mutable.ListBuffer[Macd] = mutable.ListBuffer.empty
 
   abstract override def step(k: Kline, history: Boolean = false): Unit = {
     super.step(k)
     if(klines.length == 1) {
-      macd.prepend(Macd(k.close, k.close, 0, 0, 0))
+      macd.prepend(Macd(k.datetime, k.close, k.close, 0, 0, 0))
     }else{
-      macd.prepend(macd(0).next(k.close, fast,slow))
+      macd.prepend(macd(0).next(k,k.close, fast,slow, mid))
     }
   }
 }
