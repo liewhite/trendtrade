@@ -31,6 +31,46 @@ class GridStrategy(historyLength: Int) extends BaseStrategy with KlineMixin {
   val position = mutable.ListBuffer.empty[Position]
   val closed = mutable.ListBuffer.empty[Position]
 
+  // 根据盈亏设置止盈止损线
+  def modifyStopLoss() = {
+    // 盈利超过20根K线平均值的2倍，则止损拉到成本线
+    // 盈利超过20根K线平均值的5倍，则70%浮动止盈
+    val k = klines(0)
+    val ks = klines.slice(0,20)
+    val avgFluctuate = ks.map(item => (item.close - item.open).abs).sum / ks.length
+    position.mapInPlace(p => {
+      if((k.close - p.openAt) * p.direction / p.openAt > 3 * avgFluctuate) {
+        p.copy(stopLoss = Some(k.close - (k.close - p.openAt) * p.direction * 0.3))
+      }else if((k.close - p.openAt) * p.direction / p.openAt > avgFluctuate) {
+        p.copy(stopLoss = Some(p.openAt))
+      }else{
+        p
+      }
+    })
+  }
+
+  // 止盈止损
+  def checkAndClose() = {
+    val k = klines(0)
+    val toClose = position.filter(item =>
+      (klines(0).close - item.stopLoss.get) * item.direction < 0
+    )
+    position.filterInPlace(item =>
+      (klines(0).close - item.stopLoss.get) * item.direction >= 0
+    )
+
+    toClose.foreach(item => {
+      closed.prepend(
+        item.copy(
+          closeTime = Some(klines(0).datetime),
+          closeAt = Some(klines(0).close)
+        )
+      )
+      println(
+        s"close:${item} profit: ${(k.close - item.openAt) * item.direction} ${item.direction} ${k.datetime}, price ${k.close}"
+      )
+    })
+  }
   // 计算某个价位的阻力值
   // 原理是某个价位容易放量， 则大概率是阻力位
   def pressureAtPrice(price: BigDecimal): BigDecimal = {
@@ -70,11 +110,12 @@ class GridStrategy(historyLength: Int) extends BaseStrategy with KlineMixin {
     println(
       s"close: profit: ${(k.close - current.openAt) * current.direction} ${current.direction} ${k.datetime}, price ${k.close}"
     )
+    println()
   }
   def open(direction: Int, stopLoss: BigDecimal) = {
     val k = klines(0)
     position.prepend(
-      Position(k, k.datetime, direction, k.close, None, Some(stopLoss),None)
+      Position(k, k.datetime, direction, k.close, None,None, Some(stopLoss),None)
     )
     println(s"open : ${direction} ${k.datetime}, price ${k.close}")
   }
@@ -99,6 +140,8 @@ class GridStrategy(historyLength: Int) extends BaseStrategy with KlineMixin {
     if (klines(0).close == klines(1).close) {
       return
     }
+    checkAndClose()
+    modifyStopLoss()
 
     val direction = ((klines(0).close - klines(1).close).abs / (klines(
       0
@@ -134,15 +177,15 @@ class GridStrategy(historyLength: Int) extends BaseStrategy with KlineMixin {
       closePressure == 0 ||
       openPressure > closePressure
     ) {
-      // println(s"open pre: ${openPressure} close pre: ${closePressure}")
+      val sl = if(direction == 1) k.low else k.high
       if (position.nonEmpty) {
         if (position(0).direction != direction) {
           closeCurrent()
-          open(direction, 0)
+          open(direction, sl)
         } else {}
       } else {
         // 无持仓直接开仓
-        open(direction, 0)
+        open(direction, sl)
       }
     }
   }

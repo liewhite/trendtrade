@@ -15,21 +15,24 @@ class MaBackStrategy() extends BaseStrategy with KlineMixin with MacdMixin() wit
 
   // 根据盈亏设置止盈止损线
   def modifyStopLoss() = {
-    // 盈利超过20根K线平均值的2倍，则止损拉到成本线
-    // 盈利超过20根K线平均值的5倍，则70%浮动止盈
+    // 盈利超过20根K线平均值的1倍，则止损拉到成本线
+    // 盈利超过20根K线平均值的3倍，则50%浮动止盈
     val k = klines(0)
-    val ks = klines.slice(0,20)
+    val ks = klines.slice(0,10)
+
     val avgFluctuate = ks.map(item => (item.close - item.open).abs).sum / ks.length
+
     position.mapInPlace(p => {
-      if((k.close - p.openAt) * p.direction / p.openAt > 3 * avgFluctuate) {
-        p.copy(stopLoss = Some(k.close - (k.close - p.openAt) * p.direction * 0.3))
-      }else if((k.close - p.openAt) * p.direction / p.openAt > avgFluctuate) {
+      if((k.close - p.openAt) * p.direction > 10 * avgFluctuate) {
+        p.copy(stopLoss = Some(k.close - (k.close - p.openAt) * p.direction * 0.2))
+      }else if((k.close - p.openAt) * p.direction > avgFluctuate) {
         p.copy(stopLoss = Some(p.openAt))
       }else{
         p
       }
     })
   }
+
   // 止盈止损
   def checkAndClose() = {
     val k = klines(0)
@@ -56,9 +59,9 @@ class MaBackStrategy() extends BaseStrategy with KlineMixin with MacdMixin() wit
   def open(direction: Int, stopLoss: BigDecimal) = {
     val k = klines(0)
     position.prepend(
-      Position(k, k.datetime, direction, k.close, None, stopLoss = Some(stopLoss))
+      Position(k, k.datetime, direction, k.close, None,None, Some(stopLoss), None)
     )
-    println(s"open : ${direction} ${k.datetime}, price ${k.close}")
+    println(s"open : ${position}")
   }
 
   override def step(k: Kline, history: Boolean = false): Unit = {
@@ -72,23 +75,47 @@ class MaBackStrategy() extends BaseStrategy with KlineMixin with MacdMixin() wit
       return
     }
     checkAndClose()
+    modifyStopLoss()
+
+    val entitySize = (k.close - k.open).abs
+    val entities = klines
+      .slice(1, 11)
+      .map(item => {
+        if (item.close == item.open) {
+          BigDecimal(0)
+        } else {
+          (item.close - item.open).abs
+        }
+      })
+
+    val avgEntitySize = entities.sum / entities.length
+    // k线实体大于过去一段时间的平均的2倍， 视为趋势开始
+    if (entitySize <= avgEntitySize * 2) {
+      return
+    }
+
+    val ma = mas(20)
     // 无波动，不操作
     if (klines(0).close == klines(1).close) {
       return
     }
-    if(mas(20)(0) == mas(20)(1)) {
+    if(ma(0) == ma(1)) {
+      return
+    }
+    if(position.nonEmpty) {
       return
     }
 
-    val maDirection = ((macd(0).dea - macd(1).dea).abs / (macd(0).dea - macd(1).dea)).intValue
+    val maDirection = (ma(0) - ma(1)).signum
 
-    if( (k.open - mas(20)(0) ) * maDirection <0 && (k.close - k.open) * maDirection > 0 ) {
+    // 开盘价在均线劣势方,且涨跌与均线一致
+    if( (k.open - ma(0) ) * maDirection < 0 && (k.close - k.open) * maDirection > 0 ) {
+      // 已有持仓， 忽略
       if(position.nonEmpty && position(0).direction == maDirection) {
         return
       }
-      println(s"macd ${macd(0)} k: ${k}")
       val sl = if(maDirection == 1) k.low else k.high
-      open(maDirection, stopLoss = k.close)
+      open(maDirection, stopLoss = sl)
     }
 
   }

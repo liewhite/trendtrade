@@ -39,14 +39,14 @@ def getSymbol5minK(symbol: String): List[Kline] = {
 
 @main def main: Unit = {
   // val ks15 = getSymbol5minK("CF2209")
-  val ks15 = getSymbolK("DOTBUSD","15m")
-  val bot = GridStrategy(150)
+  val ks15 = getSymbolK("BTCBUSD","1h")
+  val bot = MaBackStrategy()
   ks15.foreach(k => {
-    bot.step(k)
+    bot.step(k) 
   })
   val profit = bot.closed.map(item => (item.closeAt.get - item.openAt) * item.direction - item.openAt * 0.00036 - item.closeAt.get * 0.00036).sum
   val fee = bot.closed.map(item => item.openAt * 0.00036 + item.closeAt.get * 0.00036).sum
-  
-  println(s"tx count: ${bot.closed.length} ,fee: ${fee} total profit: ${profit} precent: ${profit/bot.klines(0).close * 100}"  )
+
+  println(s"tx count: ${bot.closed.length} ,fee: ${fee} profit: ${profit} precent: ${(profit/bot.klines(0).close * 100).intValue}%"  )
 }
 
