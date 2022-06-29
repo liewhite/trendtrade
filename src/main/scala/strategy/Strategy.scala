@@ -13,9 +13,7 @@ case class Kline(
 )
 
 case class Position(
-    orderId: Long,
     quantity: BigDecimal,
-    kline: Kline,
     openTime: LocalDateTime,
     direction: Int,
     openAt: BigDecimal,

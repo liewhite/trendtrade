@@ -21,6 +21,10 @@ import okhttp3.WebSocket
 import okhttp3.Response
 import scala.concurrent.*
 import com.typesafe.scalalogging.Logger
+import strategy.Kline
+import java.time.LocalDateTime
+import java.time.Instant
+import java.time.ZoneId
 // import com.typesafe.lo
 
 enum TradeSide {
@@ -60,19 +64,19 @@ case class PriceResponse(
     price: String
 )
 case class AccountInfoResponse(
-  positions: Vector[AccountInfoResponsePosition]
+    positions: Vector[AccountInfoResponsePosition]
 )
 case class AccountInfoResponsePosition(
-  symbol: String,
-  entryPrice: String,
-  // 负数表示空单?
-  positionAmt: String
+    symbol: String,
+    entryPrice: String,
+    // 负数表示空单?
+    positionAmt: String
 )
 case class PositionFromBinance(
-  symbol: String,
-  entryPrice: BigDecimal,
-  // 负数表示空单?
-  positionAmt: BigDecimal
+    symbol: String,
+    entryPrice: BigDecimal,
+    // 负数表示空单?
+    positionAmt: BigDecimal
 )
 
 trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
@@ -86,6 +90,46 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
   var listenKey: String = ""
   var streamReady: Promise[Boolean] = Promise()
 
+  def getHistory(symbol: String, interval: String): Vector[Kline] = {
+    val response = quickRequest
+      .get(
+        uri"${binanceHttpBaseUrl}/fapi/v1/continuousKlines?pair=${symbol}&contractType=PERPETUAL&interval=${interval}"
+      )
+      .header(
+        "X-MBX-APIKEY",
+        apiKey
+      )
+      .send(backend)
+
+    response.body
+      .fromJsonMust[List[
+        (
+            Long,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Long,
+            String,
+            Long,
+            String,
+            String,
+            String
+        )
+      ]]
+      .map(item =>
+        Kline(
+          LocalDateTime
+            .ofInstant(Instant.ofEpochMilli(item._1), ZoneId.systemDefault),
+          BigDecimal(item._2),
+          BigDecimal(item._3),
+          BigDecimal(item._4),
+          BigDecimal(item._5),
+          BigDecimal(item._6)
+        )
+      ).toVector
+  }
   def getPositions(symbol: String): Vector[PositionFromBinance] = {
     val infoUrl = uri"${binanceHttpBaseUrl}/fapi/v2/account"
     // 更改逐仓， 杠杆倍数
@@ -97,10 +141,19 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
         apiKey
       )
       .send(backend)
-    
-    response.body.fromJsonMust[AccountInfoResponse].positions.map(item => {
-      PositionFromBinance(item.symbol, BigDecimal(item.entryPrice), BigDecimal(item.positionAmt))
-    }).toVector.filter(_.positionAmt != 0)
+
+    response.body
+      .fromJsonMust[AccountInfoResponse]
+      .positions
+      .map(item => {
+        PositionFromBinance(
+          item.symbol,
+          BigDecimal(item.entryPrice),
+          BigDecimal(item.positionAmt)
+        )
+      })
+      .toVector
+      .filter(_.positionAmt != 0)
   }
 
   def getSymbolPrice(symbol: String): BigDecimal = {
@@ -116,7 +169,6 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
     val res = lres.body.fromJsonMust[PriceResponse]
     return BigDecimal(res.price)
   }
-
 
   // 调整pair杠杆和逐仓
   def prepareSymbol(symbol: String) = {
@@ -288,7 +340,6 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
       }
     )
   }
-
 
   def signReq(s: Uri): Uri = {
     val now = ZonedDateTime.now().toInstant.toEpochMilli

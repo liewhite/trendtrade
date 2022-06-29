@@ -7,12 +7,7 @@ import sttp.client3._
 import binance.BinanceApi
 import com.typesafe.scalalogging.Logger
 import binance.TradeSide
-// 代码设计
 
-// 做趋势回调
-// 处于均线劣势方， 出现顺势K线开仓
-// 止损为K线最低点
-// 移动止盈
 class MaBackStrategy(symbol: String, trader: BinanceApi)
     extends BaseStrategy
     with KlineMixin
@@ -23,13 +18,42 @@ class MaBackStrategy(symbol: String, trader: BinanceApi)
   var currentPosition: Option[Position] = None
   val closed = mutable.ListBuffer.empty[Position]
 
+  def init() = {
+    loadHistory()
+    loadPosition()
+    // 开始websocket
+  }
+
+  def loadHistory() = {
+    val history = trader.getHistory(symbol, "1h")
+    history.foreach(step(_, true))
+  }
+
+  // 必须先load历史K线才能加载持仓
   def loadPosition() = {
     // 获取持仓,过滤出symbol
     val positions = trader.getPositions(symbol)
+    if (positions.length > 1) {
+      throw Exception("positions > 1, strategy only support one position")
+    }
     // 获取当前价格， 计算止损价
     val currentPrice = trader.getSymbolPrice(symbol)
     // 加入持仓
-    // position
+    val p = positions(0)
+    val direction = p.positionAmt.signum
+    currentPosition = Some(
+      Position(
+        p.positionAmt,
+        LocalDateTime.now,
+        direction,
+        p.entryPrice,
+        None,
+        None,
+        None,
+        None
+      )
+    )
+    modifyStopLoss()
   }
 
   // 根据盈亏设置止盈止损线
@@ -65,7 +89,12 @@ class MaBackStrategy(symbol: String, trader: BinanceApi)
       case None =>
       case Some(item) => {
         if ((klines(0).close - item.stopLoss.get) * item.direction < 0) {
-          // todo 平仓, 需要symbol， quantity，direction
+          // 平仓, 需要symbol， quantity，direction
+          trader.sendOrder(
+            symbol,
+            if (item.direction == 1) then TradeSide.SELL else TradeSide.BUY,
+            item.quantity
+          )
 
           closed.prepend(
             item.copy(
@@ -99,17 +128,15 @@ class MaBackStrategy(symbol: String, trader: BinanceApi)
     }
     val k = klines(0)
     val price = k.close
-    // 保留4位小数
+    // 保留3位小数
     val quantity =
-      ((balances._1 * 0.1) / price * trader.leverage) setScale (4, BigDecimal.RoundingMode.HALF_UP)
+      ((balances._1 * 0.1) / price * trader.leverage) setScale (3, BigDecimal.RoundingMode.HALF_UP)
     val side = if (direction == 1) TradeSide.BUY else TradeSide.SELL
     val orderId = trader.sendOrder(symbol, side, quantity)
 
     currentPosition = Some(
       Position(
-        orderId,
         quantity,
-        k,
         k.datetime,
         direction,
         k.close,
@@ -119,7 +146,7 @@ class MaBackStrategy(symbol: String, trader: BinanceApi)
         None
       )
     )
-    println(s"open : ${currentPosition}")
+    logger.info(s"open : ${currentPosition}")
   }
 
   override def step(k: Kline, history: Boolean = false): Unit = {
