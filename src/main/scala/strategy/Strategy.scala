@@ -12,6 +12,19 @@ case class Kline(
     vol: BigDecimal,
 )
 
+case class Position(
+    orderId: Long,
+    quantity: BigDecimal,
+    kline: Kline,
+    openTime: LocalDateTime,
+    direction: Int,
+    openAt: BigDecimal,
+    closeTime: Option[LocalDateTime] = None,
+    closeAt: Option[BigDecimal] = None,
+    stopLoss: Option[BigDecimal] = None,
+    targetProfit: Option[BigDecimal] = None,
+)
+
 abstract class AStrategy {
   def step(k: Kline, history: Boolean = false): Unit
 }

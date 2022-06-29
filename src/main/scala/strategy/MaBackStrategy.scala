@@ -3,31 +3,56 @@ package strategy
 import scala.math
 import scala.collection.mutable
 import java.time.LocalDateTime
+import sttp.client3._
+import binance.BinanceApi
+import com.typesafe.scalalogging.Logger
+import binance.TradeSide
 // 代码设计
 
 // 做趋势回调
 // 处于均线劣势方， 出现顺势K线开仓
 // 止损为K线最低点
 // 移动止盈
-class MaBackStrategy() extends BaseStrategy with KlineMixin with MacdMixin() with MaMixin(Vector(20)) {
-  val position = mutable.ListBuffer.empty[Position]
+class MaBackStrategy(symbol: String, trader: BinanceApi)
+    extends BaseStrategy
+    with KlineMixin
+    with MacdMixin()
+    with MaMixin(Vector(20)) {
+
+  val logger = Logger("strategy")
+  var currentPosition: Option[Position] = None
   val closed = mutable.ListBuffer.empty[Position]
 
+  def loadPosition() = {
+    // 获取持仓,过滤出symbol
+    val positions = trader.getPositions(symbol)
+    // 获取当前价格， 计算止损价
+    val currentPrice = trader.getSymbolPrice(symbol)
+    // 加入持仓
+    // position
+  }
+
   // 根据盈亏设置止盈止损线
-  def modifyStopLoss() = {
+  def modifyStopLoss(): Unit = {
+    if (currentPosition.isEmpty) {
+      return
+    }
     // 盈利超过20根K线平均值的1倍，则止损拉到成本线
     // 盈利超过20根K线平均值的3倍，则50%浮动止盈
     val k = klines(0)
-    val ks = klines.slice(0,10)
+    val ks = klines.slice(0, 10)
 
-    val avgFluctuate = ks.map(item => (item.close - item.open).abs).sum / ks.length
+    val avgFluctuate =
+      ks.map(item => (item.close - item.open).abs).sum / ks.length
 
-    position.mapInPlace(p => {
-      if((k.close - p.openAt) * p.direction > 10 * avgFluctuate) {
-        p.copy(stopLoss = Some(k.close - (k.close - p.openAt) * p.direction * 0.2))
-      }else if((k.close - p.openAt) * p.direction > avgFluctuate) {
+    currentPosition = currentPosition.map(p => {
+      if ((k.close - p.openAt) * p.direction > 10 * avgFluctuate) {
+        p.copy(stopLoss =
+          Some(k.close - (k.close - p.openAt) * p.direction * 0.2)
+        )
+      } else if ((k.close - p.openAt) * p.direction > avgFluctuate) {
         p.copy(stopLoss = Some(p.openAt))
-      }else{
+      } else {
         p
       }
     })
@@ -36,32 +61,65 @@ class MaBackStrategy() extends BaseStrategy with KlineMixin with MacdMixin() wit
   // 止盈止损
   def checkAndClose() = {
     val k = klines(0)
-    val toClose = position.filter(item =>
-      (klines(0).close - item.stopLoss.get) * item.direction < 0
-    )
-    position.filterInPlace(item =>
-      (klines(0).close - item.stopLoss.get) * item.direction >= 0
-    )
+    currentPosition match {
+      case None =>
+      case Some(item) => {
+        if ((klines(0).close - item.stopLoss.get) * item.direction < 0) {
+          // todo 平仓, 需要symbol， quantity，direction
 
-    toClose.foreach(item => {
-      closed.prepend(
-        item.copy(
-          closeTime = Some(klines(0).datetime),
-          closeAt = Some(klines(0).close)
-        )
-      )
-      println(
-        s"close:${item} profit: ${(k.close - item.openAt) * item.direction} ${item.direction} ${k.datetime}, price ${k.close}"
-      )
-    })
+          closed.prepend(
+            item.copy(
+              closeTime = Some(klines(0).datetime),
+              closeAt = Some(klines(0).close)
+            )
+          )
+          currentPosition = None
+          println(
+            s"close:${item} profit: ${(k.close - item.openAt) * item.direction} ${item.direction} ${k.datetime}, price ${k.close}"
+          )
+        }
+      }
+    }
   }
 
-  def open(direction: Int, stopLoss: BigDecimal) = {
+  // 发送订单， 等待成交
+  def open(direction: Int, stopLoss: BigDecimal): Unit = {
+    if (currentPosition.nonEmpty) {
+      return
+    }
+    // 查询账户总额， 余额, 如果余额小于总额的10%()， 放弃开仓
+    // 根据开仓金额计算quantity， 精确到千分位
+    // 开仓成功时，记录订单id
+    val balances = trader.getTotalBalance()
+    if (balances._2 * 10 < balances._1) {
+      logger.warn(
+        s"failed open position, not enough balance: total: ${balances._1}, availiable: ${balances._2}"
+      )
+      return
+    }
     val k = klines(0)
-    position.prepend(
-      Position(k, k.datetime, direction, k.close, None,None, Some(stopLoss), None)
+    val price = k.close
+    // 保留4位小数
+    val quantity =
+      ((balances._1 * 0.1) / price * trader.leverage) setScale (4, BigDecimal.RoundingMode.HALF_UP)
+    val side = if (direction == 1) TradeSide.BUY else TradeSide.SELL
+    val orderId = trader.sendOrder(symbol, side, quantity)
+
+    currentPosition = Some(
+      Position(
+        orderId,
+        quantity,
+        k,
+        k.datetime,
+        direction,
+        k.close,
+        None,
+        None,
+        Some(stopLoss),
+        None
+      )
     )
-    println(s"open : ${position}")
+    println(s"open : ${currentPosition}")
   }
 
   override def step(k: Kline, history: Boolean = false): Unit = {
@@ -99,22 +157,26 @@ class MaBackStrategy() extends BaseStrategy with KlineMixin with MacdMixin() wit
     if (klines(0).close == klines(1).close) {
       return
     }
-    if(ma(0) == ma(1)) {
+    if (ma(0) == ma(1)) {
       return
     }
-    if(position.nonEmpty) {
+    if (currentPosition.nonEmpty) {
       return
     }
 
     val maDirection = (ma(0) - ma(1)).signum
 
     // 开盘价在均线劣势方,且涨跌与均线一致
-    if( (k.open - ma(0) ) * maDirection < 0 && (k.close - k.open) * maDirection > 0 ) {
+    if (
+      (k.open - ma(0)) * maDirection < 0 && (k.close - k.open) * maDirection > 0
+    ) {
       // 已有持仓， 忽略
-      if(position.nonEmpty && position(0).direction == maDirection) {
+      if (
+        currentPosition.nonEmpty && currentPosition.get.direction == maDirection
+      ) {
         return
       }
-      val sl = if(maDirection == 1) k.low else k.high
+      val sl = if (maDirection == 1) k.low else k.high
       open(maDirection, stopLoss = sl)
     }
 
