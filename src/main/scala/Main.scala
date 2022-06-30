@@ -24,21 +24,15 @@ def start() = {
       5
     ) {}
     val fs         = FeishuNotify(cfg.feishu)
-
-    val strategy1 = MaBackStrategy("WAVESBUSD", "15m", binanceApi, fs)
-    strategy1.start()
-    val strategy2 = MaBackStrategy("BTCBUSD", "15m", binanceApi, fs)
-    strategy2.start()
-    val strategy3 = MaBackStrategy("FTMBUSD", "15m", binanceApi, fs)
-    strategy3.start()
-    val strategy4 = MaBackStrategy("APEBUSD", "15m", binanceApi, fs)
-    strategy4.start()
-    val strategy5 = MaBackStrategy("GMTBUSD", "15m", binanceApi, fs)
-    strategy5.start()
-    val strategy6 = MaBackStrategy("XRPBUSD", "15m", binanceApi, fs)
-    strategy6.start()
-
+    val interval = "1h"
+    val symbols = Vector("WAVESBUSD","BTCBUSD","FTMBUSD","APEBUSD","GMTBUSD","XRPBUSD","DOTBUSD","ANCBUSD","AVAXBUSD")
+    val strategies = symbols.map(s => {
+      val bot = MaBackStrategy("WAVESBUSD", interval, binanceApi, fs)
+      bot.start()
+      bot
+    })
 }
+
 @main def main: Unit = {
   // backtest()
   start()
