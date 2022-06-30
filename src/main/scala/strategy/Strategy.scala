@@ -24,6 +24,12 @@ case class Position(
 )
 
 abstract class AStrategy {
+  def queueList[T](l: mutable.ListBuffer[T],length: Int) = {
+    if(l.length > length) {
+      l.dropRightInPlace(l.length - length)
+    }
+  }
+
   def step(k: Kline, history: Boolean = false): Unit
 }
 
@@ -37,6 +43,7 @@ trait KlineMixin extends AStrategy {
   abstract override def step(k: Kline, history: Boolean = false): Unit = {
     super.step(k)
     klines.prepend(k)
+    queueList(klines,1000)
   }
 }
 
@@ -57,7 +64,11 @@ trait VolMaMixin(intervals: Vector[Int]) extends AStrategy {
         volMas(interval).prepend(avg)
       }
     })
+    volMas.foreach(item => {
+      queueList(item._2,1000)
+    })
   }
+
   def volMaDirection(interval : Int): Int = {
     if(volMas(interval).length < 2) {
       0
@@ -89,6 +100,7 @@ trait MaMixin(intervals: Vector[Int] = Vector(5,10,20)) extends AStrategy {
         val avg = ks.map(_.close).sum / ks.length
         mas(interval).prepend(avg)
       }
+      queueList(mas(interval),1000)
     })
   }
 }
@@ -123,6 +135,7 @@ trait MacdMixin(fast: Int = 12, slow: Int = 26 ,mid: Int = 9) extends AStrategy 
     }else{
       macd.prepend(macd(0).next(k,k.close, fast,slow, mid))
     }
+    queueList(macd,1000)
   }
 }
 
@@ -160,5 +173,6 @@ trait KdjMixin(arg1: Int=9, arg2: Int = 3, arg3: Int= 3) extends AStrategy {
       Kdj(k, rsv, newK,newD,newJ)
     }
     kdj.prepend(newKdj)
+    queueList(kdj,1000)
   }
 }

@@ -7,6 +7,7 @@ import strategy.*
 import binance.*
 import io.github.liewhite.config.loadConfig
 import io.github.liewhite.json.given
+import java.time.Duration
 
 case class AppConfig(
   apiKey: String,
@@ -20,12 +21,17 @@ case class AppConfig(
     cfg.apiSecret,
     5
   ){}
-  // binanceApi.prepareSymbol("BTCBUSD")
-  // println(binanceApi.getSymbolPrice("BTCBUSD"))
-  println(binanceApi.getPositions("BTCBUSD"))
 
-  // trader.sendOrder("BTCBUSD", TradeSide.BUY, 0.001)
-  // println(trader.getTotalBalance())
+  val strategy1 = MaBackStrategy("WAVESBUSD","15m", binanceApi)
+  strategy1.start()
+  val strategy2 = MaBackStrategy("BTCBUSD","15m", binanceApi)
+  strategy2.start()
+  val strategy3 = MaBackStrategy("FTMBUSD","15m", binanceApi)
+  strategy3.start()
+  val strategy4 = MaBackStrategy("APEBUSD","15m", binanceApi)
+  strategy4.start()
+  val strategy5 = MaBackStrategy("GMTBUSD","15m", binanceApi)
+  strategy5.start()
 }
 
 def backtest() = {

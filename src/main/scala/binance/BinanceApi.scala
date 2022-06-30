@@ -75,8 +75,48 @@ case class AccountInfoResponsePosition(
 case class PositionFromBinance(
     symbol: String,
     entryPrice: BigDecimal,
-    // 负数表示空单?
+    // 负数表示空单
     positionAmt: BigDecimal
+)
+case class StreamKlineResponseDetail(
+    t: Long, // 以开始时间为准
+    // T: Long,
+    o: String,
+    l: String,
+    h: String,
+    c: String,
+    v: String,
+    x: Boolean
+)
+
+case class StreamKlineResponse(
+    k: StreamKlineResponseDetail
+)
+case class SymbolMetaFilter(
+    filterType: String,
+    tickSize: Option[String],
+    stepSize: Option[String]
+)
+
+case class SymbolMetaResponseItem(
+    symbol: String,
+    contractType: String,
+    filters: Vector[SymbolMetaFilter]
+)
+
+case class SymbolMetaResponse(
+    symbols: Vector[SymbolMetaResponseItem]
+)
+
+case class SymbolMeta(
+    symbol: String,
+    stepSize: BigDecimal
+)
+case class TradeResponse(
+  symbol: String,
+  price: String,
+  side: String,
+  time: Long
 )
 
 trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
@@ -89,6 +129,93 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
   val orders = concurrent.TrieMap.empty[Long, Boolean]
   var listenKey: String = ""
   var streamReady: Promise[Boolean] = Promise()
+  var symbolMetas: Map[String, SymbolMeta] = Map.empty
+
+  def symbolMeta(symbol: String): SymbolMeta = {
+    this.synchronized {
+      if (symbolMetas.isEmpty) {
+        val response = quickRequest
+          .get(
+            uri"${binanceHttpBaseUrl}/fapi/v1/exchangeInfo"
+          )
+          .header(
+            "X-MBX-APIKEY",
+            apiKey
+          )
+          .send(backend)
+
+        val res = response.body.fromJsonMust[SymbolMetaResponse]
+        symbolMetas = res.symbols
+          .filter(_.contractType == "PERPETUAL")
+          .map(item => {
+            val stepSize = BigDecimal(
+              item.filters
+                .filter(_.filterType == "MARKET_LOT_SIZE")(0)
+                .stepSize
+                .get
+            )
+            SymbolMeta(item.symbol, stepSize)
+          })
+          .map(item => (item.symbol, item))
+          .toMap
+
+      }
+    }
+    symbolMetas(symbol)
+  }
+
+  def subscribeKlines(
+      symbol: String,
+      interval: String,
+      callback: Kline => Unit
+  ):Unit = {
+    val client = new OkHttpClient()
+    val req = new Request.Builder()
+      .url(
+        streamUrl + s"/${symbol.toLowerCase}_perpetual@continuousKline_${interval}"
+      )
+      .build()
+    val ws = client.newWebSocket(
+      req,
+      new WebSocketListener {
+        override def onOpen(x: WebSocket, y: Response): Unit = {
+          logger.info("market stream connected")
+        }
+        override def onMessage(s: WebSocket, x: String): Unit = {
+          val res = x.fromJsonMust[StreamKlineResponse]
+          // logger.info(s"market info: ${res}")
+          if (res.k.x) {
+            callback(
+              Kline(
+                LocalDateTime.ofInstant(
+                  Instant.ofEpochMilli(((res.k.t / 1000).longValue + 1) * 1000),
+                  ZoneId.systemDefault
+                ),
+                BigDecimal(res.k.o),
+                BigDecimal(res.k.l),
+                BigDecimal(res.k.h),
+                BigDecimal(res.k.c),
+                BigDecimal(res.k.v)
+              )
+            )
+          }
+        }
+
+        override def onFailure(
+            s: WebSocket,
+            e: Throwable,
+            x: Response
+        ): Unit = {
+          logger.error(e.toString)
+          e.printStackTrace
+          logger.info("websocket closed, reloading")
+          s.cancel()
+          Thread.sleep(3000)
+          subscribeKlines(symbol,interval,callback)
+        }
+      }
+    )
+  }
 
   def getHistory(symbol: String, interval: String): Vector[Kline] = {
     val response = quickRequest
@@ -128,7 +255,8 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
           BigDecimal(item._5),
           BigDecimal(item._6)
         )
-      ).toVector
+      )
+      .toVector
   }
   def getPositions(symbol: String): Vector[PositionFromBinance] = {
     val infoUrl = uri"${binanceHttpBaseUrl}/fapi/v2/account"
@@ -153,11 +281,25 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
         )
       })
       .toVector
-      .filter(_.positionAmt != 0)
+      .filter(item => item.positionAmt != 0 && item.symbol == symbol)
   }
 
-  def getSymbolPrice(symbol: String): BigDecimal = {
+  def getTrades(symbol: String): Vector[TradeResponse] = {
+    val url = uri"${binanceHttpBaseUrl}/fapi/v1/userTrades"
+    // 更改逐仓， 杠杆倍数
+    val signedReq = signReq(url)
+    val response = quickRequest
+      .get(signedReq)
+      .header(
+        "X-MBX-APIKEY",
+        apiKey
+      )
+      .send(backend)
 
+    response.body
+      .fromJsonMust[Vector[TradeResponse]].filter(_.symbol == symbol)
+  }
+  def getSymbolPrice(symbol: String): BigDecimal = {
     val req = uri"${binanceHttpBaseUrl}/fapi/v1/ticker/price?symbol=${symbol}"
     val lres = quickRequest
       .get(req)
@@ -226,9 +368,6 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
     }
   }
 
-  // 平仓
-  def closePosition(orderId: Long) = {}
-
   // 发送交易并等待成交
   def sendOrder(
       symbol: String,
@@ -239,6 +378,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
     if (!readySymbol.contains(symbol)) {
       prepareSymbol(symbol)
     }
+
     val orderReq =
       uri"${orderUrl}?symbol=${symbol}&side=${side.toString}&type=MARKET&quantity=${quantity}"
 
@@ -293,13 +433,15 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
     }
   }
 
-  def listenOrder() = {
+  def listenOrder(updateKey: Boolean = true): Unit = {
     // 获取listen key
-    updateListenKey()
-    Future {
-      while (true) {
-        Thread.sleep(1000 * 60 * 30)
-        updateListenKey()
+    if(updateKey) {
+      updateListenKey()
+      Future {
+        while (true) {
+          Thread.sleep(1000 * 60 * 30)
+          updateListenKey()
+        }
       }
     }
 
@@ -310,7 +452,9 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
       new WebSocketListener {
         override def onOpen(x: WebSocket, y: Response): Unit = {
           logger.info("trade stream connected")
-          streamReady.success(true)
+          if(updateKey) {
+            streamReady.success(true)
+          }
         }
 
         override def onMessage(s: WebSocket, x: String): Unit = {
@@ -335,7 +479,10 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
         ): Unit = {
           logger.error(e.toString)
           e.printStackTrace
-          System.exit(1)
+          logger.info("websocket closed, reloading")
+          s.cancel()
+          Thread.sleep(3000)
+          listenOrder(false)
         }
       }
     )
