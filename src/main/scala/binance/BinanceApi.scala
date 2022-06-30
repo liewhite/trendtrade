@@ -131,6 +131,38 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
     var streamReady: Promise[Boolean]        = Promise()
     var symbolMetas: Map[String, SymbolMeta] = Map.empty
 
+    def allSymbol(): Vector[SymbolMeta] = {
+        this.synchronized {
+            if (symbolMetas.isEmpty) {
+                val response = quickRequest
+                    .get(
+                      uri"${binanceHttpBaseUrl}/fapi/v1/exchangeInfo"
+                    )
+                    .header(
+                      "X-MBX-APIKEY",
+                      apiKey
+                    )
+                    .send(backend)
+
+                val res = response.body.fromJsonMust[SymbolMetaResponse]
+                symbolMetas = res.symbols
+                    .filter(_.contractType == "PERPETUAL")
+                    .map(item => {
+                        val stepSize = BigDecimal(
+                          item.filters
+                              .filter(_.filterType == "MARKET_LOT_SIZE")(0)
+                              .stepSize
+                              .get
+                        )
+                        SymbolMeta(item.symbol, stepSize)
+                    })
+                    .map(item => (item.symbol, item))
+                    .toMap
+
+            }
+        }
+        symbolMetas.map(_._2).toVector
+    }
     def symbolMeta(symbol: String): SymbolMeta = {
         this.synchronized {
             if (symbolMetas.isEmpty) {

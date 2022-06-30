@@ -23,11 +23,11 @@ def start() = {
       cfg.apiSecret,
       5
     ) {}
+    val symbols = binanceApi.allSymbol().filter(_.symbol.endsWith("BUSD")).map(_.symbol)
     val fs         = FeishuNotify(cfg.feishu)
     val interval = "1h"
-    val symbols = Vector("WAVESBUSD","BTCBUSD","FTMBUSD","APEBUSD","GMTBUSD","XRPBUSD","DOTBUSD","ANCBUSD","AVAXBUSD")
     val strategies = symbols.map(s => {
-      val bot = MaBackStrategy("WAVESBUSD", interval, binanceApi, fs)
+      val bot = MaBackStrategy(s, interval, binanceApi, fs)
       bot.start()
       bot
     })
