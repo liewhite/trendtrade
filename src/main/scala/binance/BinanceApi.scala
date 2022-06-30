@@ -25,6 +25,7 @@ import strategy.Kline
 import java.time.LocalDateTime
 import java.time.Instant
 import java.time.ZoneId
+import notifier.Notify
 // import com.typesafe.lo
 
 enum TradeSide    {
@@ -119,7 +120,7 @@ case class TradeResponse(
     time:   Long
 )
 
-trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
+trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, ntf: Notify) {
     val logger = Logger("trader")
 
     val binanceHttpBaseUrl = "https://fapi.binance.com"
@@ -130,8 +131,9 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
     var listenKey: String                    = ""
     var streamReady: Promise[Boolean]        = Promise()
     var symbolMetas: Map[String, SymbolMeta] = Map.empty
+    val heartBeat                            = CMap.empty[String, LocalDateTime]
 
-    def allSymbol(): Vector[SymbolMeta] = {
+    def allSymbol(): Vector[SymbolMeta]        = {
         this.synchronized {
             if (symbolMetas.isEmpty) {
                 val response = quickRequest
@@ -215,6 +217,8 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
               }
               override def onMessage(s: WebSocket, x: String): Unit = {
                   val res = x.fromJsonMust[StreamKlineResponse]
+                  // 记录心跳时间
+                  heartBeat.update(symbol, LocalDateTime.now)
                   // logger.info(s"market info: ${res}")
                   if (res.k.x) {
                       callback(
@@ -543,6 +547,25 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
         withTs.addParam("signature", sign)
     }
 
+    def startHeartBeatLoop() = {
+        Future {
+            while (true) {
+                val now = LocalDateTime.now
+                ntf.sendNotify(
+                  heartBeat
+                      .map(item => {
+                          val dt =
+                              if (Duration.between(item._2, now).getSeconds > 30) s"*${item._2}*"
+                              else item._2
+                          s"${item._1}: ${dt}"
+                      })
+                      .mkString("\n")
+                )
+                Thread.sleep(10 * 1000)
+            }
+        }
+    }
     listenOrder()
+    startHeartBeatLoop()
     Await.result(streamReady.future, 10.seconds)
 }
