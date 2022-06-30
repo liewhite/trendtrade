@@ -16,7 +16,7 @@ case class AppConfig(
     feishu:    String
 )
 
-@main def main: Unit = {
+def start() = {
     val cfg        = loadConfig[AppConfig]("config.yaml")
     val binanceApi = new BinanceApi(
       cfg.apiKey,
@@ -37,17 +37,22 @@ case class AppConfig(
     strategy5.start()
     val strategy6 = MaBackStrategy("XRPBUSD", "15m", binanceApi, fs)
     strategy6.start()
+
+}
+@main def main: Unit = {
+  // backtest()
+  start()
 }
 
-// def backtest() = {
-// val ks15 = getSymbol5minK("CF2209")
-// val ks15 = getSymbolK("BTCBUSD","1h")
-// val bot = MaBackStrategy()
-// ks15.foreach(k => {
-//   bot.step(k)
-// })
-// val profit = bot.closed.map(item => (item.closeAt.get - item.openAt) * item.direction - item.openAt * 0.00036 - item.closeAt.get * 0.00036).sum
-// val fee = bot.closed.map(item => item.openAt * 0.00036 + item.closeAt.get * 0.00036).sum
+def backtest() = {
+  // Vector("BTCBUSD","ETHBUSD","BNBUSD","WAVESUSD","BUSD","BTCBUSD",)
+  val ks15 = data.getSymbolK("LINKBUSD","1h")
+  val bot = MaBackTest()
+  ks15.foreach(k => {
+    bot.step(k)
+  })
+  val profit = bot.closed.map(item => (item.closeAt.get - item.openAt) * item.direction - item.openAt * 0.00036 - item.closeAt.get * 0.00036).sum
+  val fee = bot.closed.map(item => item.openAt * 0.00036 + item.closeAt.get * 0.00036).sum
 
-// println(s"tx count: ${bot.closed.length} ,fee: ${fee} profit: ${profit} precent: ${(profit/bot.klines(0).close * 100).intValue}%"  )
-// }
+  println(s"tx count: ${bot.closed.length} ,fee: ${fee} profit: ${profit} precent: ${(profit/bot.klines(0).close * 100).intValue}%"  )
+}
