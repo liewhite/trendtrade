@@ -50,8 +50,8 @@ def getLatest500K(symbol: String, interval: String): List[Kline] = {
               BigDecimal(item._6)
             )
         )
-
 }
+
 def getSymbolK(symbol: String, interval: String): List[Kline] = {
     val endTime   = ZonedDateTime.now()
     val startTime = endTime.minusDays(30)

@@ -9,6 +9,7 @@ import io.github.liewhite.config.loadConfig
 import io.github.liewhite.json.given
 import java.time.Duration
 import notifier.FeishuNotify
+import com.typesafe.scalalogging.Logger
 
 case class AppConfig(
     apiKey:           String,
@@ -17,18 +18,25 @@ case class AppConfig(
     heartBeatWebhook: String
 )
 
+val logger = Logger("main")
 def start() = {
+    logger.info("start binance bot...")
+    logger.info("load config")
     val cfg          = loadConfig[AppConfig]("config.yaml")
+    logger.info("create notify bot")
     val notifyBot    = FeishuNotify(cfg.notifyWebhook)
     val heartBeatBot = FeishuNotify(cfg.heartBeatWebhook)
+    logger.info("init binance api")
     val binanceApi   = new BinanceApi(
       cfg.apiKey,
       cfg.apiSecret,
       5,
       heartBeatBot
     ) {}
+    logger.info("get all busd symbols")
     val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith("BUSD")).map(_.symbol)
     val interval     = "1h"
+    logger.info("create strategies for symbols")
     val strategies   = symbols.map(s => {
         val bot = MaBackStrategy(s, interval, binanceApi, notifyBot)
         bot.start()

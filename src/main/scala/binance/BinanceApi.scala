@@ -1,7 +1,7 @@
 package binance
 
 import sttp.client3.okhttp.quick._
-import scala.concurrent.ExecutionContext.Implicits.global
+import common.ExecutionPool.e
 import scala.concurrent.duration.*
 import io.github.liewhite.json.{*, given}
 import scala.collection.concurrent.{TrieMap => CMap}
@@ -26,6 +26,7 @@ import java.time.LocalDateTime
 import java.time.Instant
 import java.time.ZoneId
 import notifier.Notify
+
 // import com.typesafe.lo
 
 enum TradeSide    {
@@ -565,7 +566,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             }
         }
     }
-    listenOrder()
     startHeartBeatLoop()
+    listenOrder()
     Await.result(streamReady.future, 10.seconds)
 }
