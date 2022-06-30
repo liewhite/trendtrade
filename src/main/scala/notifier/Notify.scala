@@ -1,5 +1,5 @@
 package notifier
 
-trait Notify{
+trait Notify {
     def sendNotify(msg: String): Unit
 }

@@ -4,3 +4,4 @@
 target
 .metals
 config.yaml
+.DS_STORE
