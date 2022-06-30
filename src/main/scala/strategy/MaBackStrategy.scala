@@ -294,7 +294,11 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
         val maDirection = (ma(0) - ma(1)).signum
 
         // 开盘价在均线劣势方,且涨跌与均线一致
-        if ((k.open - ma(0)) * maDirection < 0 && (k.close - k.open) * maDirection > 0) {
+        if (
+          ((k.open - ma(0)) * maDirection < 0 || (k.open - ma(
+            0
+          )).abs < avgEntitySize * 0.3) && (k.close - k.open) * maDirection > 0
+        ) {
             // 已有持仓， 忽略
             if (currentPosition.nonEmpty && currentPosition.get.direction == maDirection) {
                 return
