@@ -11,8 +11,9 @@ import java.util.concurrent.TimeoutException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.Duration
+import notifier.Notify
 
-class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi)
+class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: Notify)
     extends BaseStrategy
     with KlineMixin
     with MacdMixin()
@@ -68,25 +69,27 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi)
     logger.info(s"${symbol} 开仓时间: ${tradeTime}")
     val p = positions(0)
     // 遍历k线， 找到小于开仓时间 + interval 的那一条
-    val tradeK = klines.find(item => !item.datetime.isAfter(tradeTime.minus(Duration.parse("PT" + interval))))
+    val tradeK = klines.find(item =>
+      !item.datetime.isAfter(tradeTime.minus(Duration.parse("PT" + interval)))
+    )
     // 找到K线则使用正确的止损， 找不到则开仓价止损
     val sl = tradeK match {
-      case None    => {
+      case None => {
         logger.info(s"找不到开仓k线, 使用成本价止损, ${p}")
         p.entryPrice
       }
       case Some(k) => {
-        val v = if(p.positionAmt.signum == 1) k.low else k.high
+        val v = if (p.positionAmt.signum == 1) k.low else k.high
         logger.info(s"找到开仓k线 ${k}, 设置止损 ${v} ${p}")
         v
-      } 
+      }
     }
 
     // 加入持仓
     val direction = p.positionAmt.signum
     currentPosition = Some(
       Position(
-        p.positionAmt,
+        p.positionAmt.abs,
         LocalDateTime.now,
         direction,
         p.entryPrice,
@@ -114,14 +117,17 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi)
 
     currentPosition = currentPosition.map(p => {
       if ((k.close - p.openAt) * p.direction > 10 * avgFluctuate) {
-        logger.info(
-          s"${symbol} 最近平均波动率 ${avgFluctuate}, 跟踪止盈到 ${k.close - (k.close - p.openAt) * p.direction * 0.2}"
-        )
+        val msg = s"${symbol} 最近平均波动率 ${avgFluctuate}, 跟踪止盈到 ${k.close - (k.close - p.openAt) * p.direction * 0.2}"
+        logger.info(msg)
+        ntf.sendNotify(msg)
+
         p.copy(stopLoss =
           Some(k.close - (k.close - p.openAt) * p.direction * 0.2)
         )
       } else if ((k.close - p.openAt) * p.direction > avgFluctuate) {
-        logger.info(s"${symbol} 止损拉到成本线 ${p.openAt}")
+        val msg = s"${symbol} 止损拉到成本线 ${p.openAt}"
+        logger.info(msg)
+        ntf.sendNotify(msg)
         p.copy(stopLoss = Some(p.openAt))
       } else {
         p
@@ -129,6 +135,49 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi)
     })
   }
 
+  def closeCurrent(): Unit = {
+    val k = klines(0)
+    currentPosition match {
+      case None =>
+      case Some(item) => {
+        val msg = s"触发平仓, ${item} 当前k: ${k}"
+        logger.info(msg)
+        ntf.sendNotify(msg)
+        // 平仓, 需要symbol， quantity，direction
+        try {
+          trader.sendOrder(
+            symbol,
+            if (item.direction == 1) then TradeSide.SELL else TradeSide.BUY,
+            item.quantity,
+            true
+          )
+          val msg = s"平仓成功, ${item} 当前k: ${k}"
+          logger.info(msg)
+          ntf.sendNotify(msg)
+          closed.prepend(
+            item.copy(
+              closeTime = Some(klines(0).datetime),
+              closeAt = Some(klines(0).close)
+            )
+          )
+        } catch {
+          case e: TimeoutException => {
+            val msg = s"挂单未成交， 请手动取消或平仓, ${symbol} ${k} ${e}"
+            logger.error(msg)
+            ntf.sendNotify(msg)
+          }
+          case e: Exception => {
+            val msg = s"平仓失败， 请检查账户是否存在不一致 ${symbol} ${k} ${e}"
+            logger.error(msg)
+            ntf.sendNotify(msg)
+          }
+        }
+        // 无论如何都要删除持仓， 不然容易引起不一致, 币安端可以手动操作平仓
+        currentPosition = None
+      }
+    }
+
+  }
   // 止盈止损
   def checkAndClose(): Unit = {
     val k = klines(0)
@@ -136,30 +185,7 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi)
       case None =>
       case Some(item) => {
         if ((klines(0).close - item.stopLoss.get) * item.direction < 0) {
-          logger.info(s"触发止损, ${item} 当前k：${k}")
-          // 平仓, 需要symbol， quantity，direction
-          try {
-            trader.sendOrder(
-              symbol,
-              if (item.direction == 1) then TradeSide.SELL else TradeSide.BUY,
-              item.quantity
-            )
-            logger.info(s"止损成功, ${item} 当前k: ${k}")
-            closed.prepend(
-              item.copy(
-                closeTime = Some(klines(0).datetime),
-                closeAt = Some(klines(0).close)
-              )
-            )
-            currentPosition = None
-          } catch {
-            case e: TimeoutException => {
-              logger.error(s"挂单未成交， 请手动取消或平仓, ${symbol} ${k}")
-            }
-            case e: Exception => {
-              logger.error(s"平仓失败， 请检查账户是否存在不一致")
-            }
-          }
+          closeCurrent()
         }
       }
     }
@@ -175,14 +201,14 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi)
     // 开仓成功时，记录订单id
     val balances = trader.getTotalBalance()
     if (balances._2 * 10 < balances._1) {
-      logger.warn(
-        s"failed open position, not enough balance: total: ${balances._1}, availiable: ${balances._2}"
-      )
+      val msg = s"余额不足10%, 停止开仓 ${balances._2}/${balances._1}"
+      logger.warn(msg)
+      ntf.sendNotify(msg)
       return
     }
     val k = klines(0)
     val price = k.close
-    // 保留3位小数
+    // 按精度取近似值
     val rawQuantity = ((balances._1 * 0.1) / price * trader.leverage)
     val quantity = BigDecimal(
       (rawQuantity / symbolMeta.stepSize).intValue
@@ -190,10 +216,14 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi)
     // val quantity =
     //   ((balances._1 * 0.1) / price * trader.leverage) setScale (3, BigDecimal.RoundingMode.HALF_UP)
     val side = if (direction == 1) TradeSide.BUY else TradeSide.SELL
-    logger.info(s"触发开仓 ${symbol}, ${side} ${quantity}, k: ${k}")
+    val msg = s"触发开仓 ${symbol}, ${side} ${quantity}, k: ${k}"
+    logger.info(msg)
+    ntf.sendNotify(msg)
     try {
       trader.sendOrder(symbol, side, quantity)
-      logger.info(s"开仓成功 ${symbol}, ${side} ${quantity}, k: ${k}")
+      val msg = s"开仓成功 ${symbol}, ${side} ${quantity}, k: ${k}"
+      logger.info(msg)
+      ntf.sendNotify(msg)
       currentPosition = Some(
         Position(
           quantity,
@@ -208,10 +238,14 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi)
       )
     } catch {
       case e: TimeoutException => {
-        logger.error(s"挂单未成交， 请手动取消或平仓, ${symbol} ${k}")
+        val msg = s"挂单未成交， 请手动取消或平仓, ${symbol} ${k}"
+        logger.error(msg)
+        ntf.sendNotify(msg)
       }
       case e: Exception => {
-        logger.warn(s"开仓失败， 请检查账户是否存在不一致")
+        val msg = s"开仓失败， 请检查账户是否存在不一致"
+        logger.warn(msg)
+        ntf.sendNotify(msg)
       }
     }
 
@@ -277,7 +311,9 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi)
         open(maDirection, stopLoss = sl)
       } catch {
         case e: Exception => {
-          logger.warn(s"开仓失败，请检查账户一致性 ${symbol} ${k.datetime} ${e}")
+          val msg = s"开仓失败，请检查账户一致性 ${symbol} ${k.datetime} ${e}"
+          logger.warn(msg)
+          ntf.sendNotify(msg)
         }
       }
     }

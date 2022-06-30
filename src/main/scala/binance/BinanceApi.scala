@@ -201,6 +201,10 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
           }
         }
 
+        override def onClosing(x: WebSocket, y: Int, z: String): Unit = {
+          logger.info(s"websocket closing: ${symbol}")
+        }
+
         override def onFailure(
             s: WebSocket,
             e: Throwable,
@@ -372,17 +376,18 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
   def sendOrder(
       symbol: String,
       side: TradeSide,
-      quantity: BigDecimal
+      quantity: BigDecimal,
+      close: Boolean = false
   ): Long = {
     val orderUrl = uri"${binanceHttpBaseUrl}/fapi/v1/order"
     if (!readySymbol.contains(symbol)) {
       prepareSymbol(symbol)
     }
 
-    val orderReq =
-      uri"${orderUrl}?symbol=${symbol}&side=${side.toString}&type=MARKET&quantity=${quantity}"
+    val req =
+      uri"${orderUrl}?symbol=${symbol}&side=${side.toString}&type=MARKET&quantity=${quantity.abs}&reduceOnly=${close}"
 
-    val signedReq = signReq(orderReq)
+    val signedReq = signReq(req)
     logger.info(s"send order: ${signedReq}")
     val lres = quickRequest
       .post(signedReq)
@@ -471,6 +476,9 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int) {
               logger.info(s"ignore other msg: ${x}")
             }
           }
+        }
+        override def onClosing(x: WebSocket, y: Int, z: String): Unit = {
+          logger.info(s"websocket closing")
         }
         override def onFailure(
             s: WebSocket,

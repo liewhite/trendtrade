@@ -8,10 +8,12 @@ import binance.*
 import io.github.liewhite.config.loadConfig
 import io.github.liewhite.json.given
 import java.time.Duration
+import notifier.FeishuNotify
 
 case class AppConfig(
-  apiKey: String,
-  apiSecret: String
+    apiKey: String,
+    apiSecret: String,
+    feishu: String
 )
 
 @main def main: Unit = {
@@ -20,18 +22,21 @@ case class AppConfig(
     cfg.apiKey,
     cfg.apiSecret,
     5
-  ){}
+  ) {}
+  val fs = FeishuNotify(cfg.feishu)
 
-  val strategy1 = MaBackStrategy("WAVESBUSD","15m", binanceApi)
+  val strategy1 = MaBackStrategy("WAVESBUSD", "15m", binanceApi, fs)
   strategy1.start()
-  val strategy2 = MaBackStrategy("BTCBUSD","15m", binanceApi)
+  val strategy2 = MaBackStrategy("BTCBUSD", "15m", binanceApi, fs)
   strategy2.start()
-  val strategy3 = MaBackStrategy("FTMBUSD","15m", binanceApi)
+  val strategy3 = MaBackStrategy("FTMBUSD", "15m", binanceApi, fs)
   strategy3.start()
-  val strategy4 = MaBackStrategy("APEBUSD","15m", binanceApi)
+  val strategy4 = MaBackStrategy("APEBUSD", "15m", binanceApi, fs)
   strategy4.start()
-  val strategy5 = MaBackStrategy("GMTBUSD","15m", binanceApi)
+  val strategy5 = MaBackStrategy("GMTBUSD", "15m", binanceApi, fs)
   strategy5.start()
+  val strategy6 = MaBackStrategy("XRPBUSD", "15m", binanceApi, fs)
+  strategy6.start()
 }
 
 def backtest() = {
