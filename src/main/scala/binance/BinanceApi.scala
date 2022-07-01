@@ -452,6 +452,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
     }
 
     def updateListenKey() = {
+        logger.info("update listen key")
         val req  = uri"${binanceHttpBaseUrl}/fapi/v1/listenKey"
         val lres = quickRequest
             .post(req)

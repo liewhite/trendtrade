@@ -16,7 +16,8 @@ case class AppConfig(
     apiKey:           String,
     apiSecret:        String,
     notifyWebhook:    String,
-    heartBeatWebhook: String
+    heartBeatWebhook: String,
+    exceptionWebhook: String,
 )
 
 val logger  = Logger("main")
@@ -27,6 +28,7 @@ def start() = {
     logger.info("create notify bot")
     val notifyBot    = FeishuNotify(cfg.notifyWebhook)
     val heartBeatBot = FeishuNotify(cfg.heartBeatWebhook)
+    val exceptionBot = FeishuNotify(cfg.exceptionWebhook)
     logger.info("init binance api")
     val binanceApi   = new BinanceApi(
       cfg.apiKey,
@@ -39,7 +41,7 @@ def start() = {
     val interval     = cfg.interval
     logger.info("create strategies for symbols")
     val strategies   = symbols.map(s => {
-        val bot = MaBackStrategy(s, interval, binanceApi, notifyBot)
+        val bot = MaBackStrategy(s, interval, binanceApi, notifyBot, exceptionBot)
         bot.start()
         bot
     })

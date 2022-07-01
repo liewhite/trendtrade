@@ -13,7 +13,7 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 
-class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: Notify)
+class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: Notify,exceptionNotify: Notify)
     extends BaseStrategy
     with KlineMixin
     with MacdMixin()
@@ -119,14 +119,16 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
             // 跟踪止损
             // 跟当前止损位做比较， 只能前移， 不能退后
             val sl = if ((k.close - p.openAt) * p.direction > 10 * avgFluctuate) {
-                k.close - (k.close - p.openAt) * p.direction * 0.2
+                k.close - (k.close - p.openAt) * 0.2
             } else if ((k.close - p.openAt) * p.direction > avgFluctuate) {
                 p.openAt
             } else {
                 p.stopLoss.get
             }
             val newSl = if((sl - p.stopLoss.get) * p.direction > 0) {
-                logger.info(s"${symbol} 止损前移: ${sl}")
+                val msg = s"${symbol} 止损前移: ${sl}"
+                logger.info(msg)
+                ntf.sendNotify(msg)
                 Some(sl)
             }else{
                 p.stopLoss
@@ -163,12 +165,12 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
                     case e: TimeoutException => {
                         val msg = s"挂单未成交， 请手动取消或平仓, ${symbol} ${k} ${e}"
                         logger.error(msg)
-                        ntf.sendNotify(msg)
+                        exceptionNotify.sendNotify(msg)
                     }
                     case e: Exception => {
                         val msg = s"平仓失败， 请检查账户是否存在不一致 ${symbol} ${k} ${e}"
                         logger.error(msg)
-                        ntf.sendNotify(msg)
+                        exceptionNotify.sendNotify(msg)
                     }
                 }
                 // 无论如何都要删除持仓， 不然容易引起不一致, 币安端可以手动操作平仓
@@ -235,12 +237,12 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
             case e: TimeoutException => {
                 val msg = s" ${symbol} 挂单未成交， 请手动取消开仓挂单, ${k}"
                 logger.error(msg)
-                ntf.sendNotify(msg)
+                exceptionNotify.sendNotify(msg)
             }
             case e: Exception => {
                 val msg = s"${symbol} 开仓失败， 请检查账户是否存在不一致"
                 logger.warn(msg)
-                ntf.sendNotify(msg)
+                exceptionNotify.sendNotify(msg)
             }
         }
     }
@@ -310,7 +312,7 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
                 case e: Exception => {
                     val msg = s"开仓失败，请检查账户一致性 ${symbol} ${k.datetime} ${e}"
                     logger.warn(msg)
-                    ntf.sendNotify(msg)
+                    exceptionNotify.sendNotify(msg)
                 }
             }
         }
