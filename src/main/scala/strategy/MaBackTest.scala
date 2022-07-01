@@ -25,10 +25,10 @@ class MaBackTest() extends BaseStrategy with KlineMixin with MacdMixin() with Ma
         position.mapInPlace(p => {
             // 跟踪止损
             // 跟当前止损位做比较， 只能前移， 不能退后
-            val sl = if ((k.close - p.openAt) * p.direction > 10 * avgFluctuate) {
-                k.close - (k.close - p.openAt) * p.direction * 0.2
-            } else if ((k.close - p.openAt) * p.direction > avgFluctuate) {
-                p.openAt
+            val sl = if ((k.close - p.openAt) * p.direction > 5 * avgFluctuate) {
+                k.close - (k.close - p.openAt) * 0.2
+            } else if ((k.close - p.openAt) * p.direction > 2 * avgFluctuate) {
+                p.openAt + avgFluctuate * p.direction
             } else {
                 p.stopLoss.get
             }
@@ -84,7 +84,7 @@ class MaBackTest() extends BaseStrategy with KlineMixin with MacdMixin() with Ma
 
         val entitySize = (k.close - k.open).abs
         val entities   = klines
-            .slice(1, 11)
+            .slice(1, 20)
             .map(item => {
                 if (item.close == item.open) {
                     BigDecimal(0)
@@ -117,7 +117,7 @@ class MaBackTest() extends BaseStrategy with KlineMixin with MacdMixin() with Ma
         if (
           ((k.open - ma(0)) * maDirection < 0 || (k.open - ma(
             0
-          )).abs < avgEntitySize * 0.3) && (k.close - k.open) * maDirection > 0
+          )).abs < avgEntitySize) && (k.close - k.open) * maDirection > 0
         ) {
             // 已有持仓， 忽略
             if (position.nonEmpty && position(0).direction == maDirection) {

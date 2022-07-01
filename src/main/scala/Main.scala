@@ -41,7 +41,7 @@ def start() = {
     val interval     = cfg.interval
     logger.info("create strategies for symbols")
     val strategies   = symbols.map(s => {
-        val bot = MaBackStrategy(s, interval, binanceApi, notifyBot, exceptionBot)
+        val bot = MaBack2Strategy(s, interval, binanceApi, notifyBot, exceptionBot)
         bot.start()
         bot
     })
@@ -54,8 +54,8 @@ def start() = {
 
 def backtest() = {
     // Vector("BTCBUSD","ETHBUSD","BNBUSD","WAVESUSD","BUSD","BTCBUSD",)
-    val ks15   = data.getSymbolK("LINKBUSD", "1h")
-    val bot    = MaBackTest()
+    val ks15   = data.getSymbolK("1000LUNCBUSD", "1h")
+    val bot    = MaBackTest2()
     ks15.foreach(k => {
         bot.step(k)
     })
