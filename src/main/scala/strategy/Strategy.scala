@@ -6,8 +6,8 @@ import scala.collection.mutable
 case class Kline(
     datetime: LocalDateTime,
     open:     BigDecimal,
-    high:     BigDecimal,
     low:      BigDecimal,
+    high:     BigDecimal,
     close:    BigDecimal,
     vol:      BigDecimal
 )

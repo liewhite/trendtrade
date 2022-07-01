@@ -139,7 +139,7 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
         currentPosition match {
             case None       =>
             case Some(item) => {
-                val msg = s"触发平仓, ${item} 当前k: ${k}"
+                val msg = s"触发平仓:${symbol} ${item} 当前k: ${k}"
                 logger.info(msg)
                 ntf.sendNotify(msg)
                 // 平仓, 需要symbol， quantity，direction
@@ -150,7 +150,7 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
                       item.quantity,
                       true
                     )
-                    val msg = s"平仓成功, ${item} 当前k: ${k}"
+                    val msg = s"平仓成功: ${symbol} ${item} 当前k: ${k}"
                     logger.info(msg)
                     ntf.sendNotify(msg)
                     closed.prepend(
@@ -240,7 +240,7 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
                 ntf.sendNotify(msg)
             }
             case e: Exception => {
-                val msg = s"开仓失败， 请检查账户是否存在不一致"
+                val msg = s"${symbol} 开仓失败， 请检查账户是否存在不一致"
                 logger.warn(msg)
                 ntf.sendNotify(msg)
             }

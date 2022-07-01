@@ -291,8 +291,8 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                   LocalDateTime
                       .ofInstant(Instant.ofEpochMilli(item._1), ZoneId.systemDefault),
                   BigDecimal(item._2),
-                  BigDecimal(item._3),
-                  BigDecimal(item._4),
+                  BigDecimal(item._4), // low
+                  BigDecimal(item._3), // high
                   BigDecimal(item._5),
                   BigDecimal(item._6)
                 )
@@ -438,22 +438,17 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
         val orderRes  = lres.body.fromJsonMust[OrderResponse]
         orders.addOne(orderRes.orderId, false)
 
-        val promise = Promise[Boolean]()
-        // todo timeout
-        Future {
-            var maxTry = 25
-            while (orders.get(orderRes.orderId).isEmpty && maxTry > 0) {
-                Thread.sleep(200)
-                maxTry -= 1
-            }
-            orders.remove(orderRes.orderId)
-            promise.success(true)
+        var maxTry = 25
+        while (orders.get(orderRes.orderId).isEmpty && maxTry > 0) {
+            Thread.sleep(200)
+            maxTry -= 1
         }
-
-        Await.result(promise.future, 5.second)
-
-        orderRes.orderId
-
+        orders.remove(orderRes.orderId)
+        if(maxTry > 0) {
+          orderRes.orderId
+        }else {
+          throw Exception("timeout")
+        }
     }
 
     def updateListenKey() = {
@@ -556,13 +551,13 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                   heartBeat
                       .map(item => {
                           val dt =
-                              if (Duration.between(item._2, now).getSeconds > 30) s"*${item._2}*"
+                              if (Duration.between(item._2, now).getSeconds > 60) s"*${item._2}*"
                               else item._2
                           s"${item._1}: ${dt}"
                       })
                       .mkString("\n")
                 )
-                Thread.sleep(10 * 1000)
+                Thread.sleep(30 * 1000)
             }
         }
     }

@@ -12,13 +12,14 @@ import notifier.FeishuNotify
 import com.typesafe.scalalogging.Logger
 
 case class AppConfig(
+    interval:         String,
     apiKey:           String,
     apiSecret:        String,
     notifyWebhook:    String,
     heartBeatWebhook: String
 )
 
-val logger = Logger("main")
+val logger  = Logger("main")
 def start() = {
     logger.info("start binance bot...")
     logger.info("load config")
@@ -35,7 +36,7 @@ def start() = {
     ) {}
     logger.info("get all busd symbols")
     val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith("BUSD")).map(_.symbol)
-    val interval     = "1h"
+    val interval     = cfg.interval
     logger.info("create strategies for symbols")
     val strategies   = symbols.map(s => {
         val bot = MaBackStrategy(s, interval, binanceApi, notifyBot)
