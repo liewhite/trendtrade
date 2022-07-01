@@ -103,12 +103,12 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
     }
 
     // 根据盈亏设置止盈止损线
+    // 盈利超过10根K线平均值的1倍，则止损拉到成本线
+    // 盈利超过10根K线平均值的10倍，则80%浮动止盈
     def modifyStopLoss(): Unit = {
         if (currentPosition.isEmpty) {
             return
         }
-        // 盈利超过20根K线平均值的1倍，则止损拉到成本线
-        // 盈利超过20根K线平均值的3倍，则50%浮动止盈
         val k  = klines(0)
         val ks = klines.slice(0, 10)
 
@@ -143,7 +143,6 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
                 val msg = s"触发平仓:${symbol} ${item} 当前k: ${k}"
                 logger.info(msg)
                 ntf.sendNotify(msg)
-                // 平仓, 需要symbol， quantity，direction
                 try {
                     trader.sendOrder(
                       symbol,
@@ -197,8 +196,6 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
             return
         }
         // 查询账户总额， 余额, 如果余额小于总额的10%()， 放弃开仓
-        // 根据开仓金额计算quantity， 精确到千分位
-        // 开仓成功时，记录订单id
         val balances    = trader.getTotalBalance()
         if (balances._2 * 10 < balances._1) {
             // NOTE: 做好合约账户被爆90%的准备,千万不能入金太多, 最多放可投资金的1/4, 这样被爆了还有机会翻
@@ -236,7 +233,7 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
             )
         } catch {
             case e: TimeoutException => {
-                val msg = s"挂单未成交， 请手动取消或平仓, ${symbol} ${k}"
+                val msg = s" ${symbol} 挂单未成交， 请手动取消开仓挂单, ${k}"
                 logger.error(msg)
                 ntf.sendNotify(msg)
             }
@@ -246,7 +243,6 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
                 ntf.sendNotify(msg)
             }
         }
-
     }
 
     override def step(k: Kline, history: Boolean = false): Unit = {
@@ -260,7 +256,9 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
         if (klines.length < 20) {
             return
         }
+        // 先止盈止损
         checkAndClose()
+        // 然后移动剩余仓位的止损位
         modifyStopLoss()
 
         val entitySize = (k.close - k.open).abs
@@ -288,13 +286,14 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
         if (ma(0) == ma(1)) {
             return
         }
+        // 有持仓， 不加仓
         if (currentPosition.nonEmpty) {
             return
         }
 
         val maDirection = (ma(0) - ma(1)).signum
 
-        // 开盘价在均线劣势方,且涨跌与均线一致
+        // 开盘价在均线劣势方或者很接近,且涨跌与均线一致
         if (
           ((k.open - ma(0)) * maDirection < 0 || (k.open - ma(
             0
