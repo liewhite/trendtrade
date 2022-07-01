@@ -116,21 +116,22 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
             ks.map(item => (item.close - item.open).abs).sum / ks.length
 
         currentPosition = currentPosition.map(p => {
-            if ((k.close - p.openAt) * p.direction > 10 * avgFluctuate) {
-                val msg =
-                    s"${symbol} 最近平均波动率 ${avgFluctuate}, 跟踪止盈到 ${k.close - (k.close - p.openAt) * p.direction * 0.2}"
-                logger.info(msg)
-                ntf.sendNotify(msg)
-
-                p.copy(stopLoss = Some(k.close - (k.close - p.openAt) * p.direction * 0.2))
+            // 跟踪止损
+            // 跟当前止损位做比较， 只能前移， 不能退后
+            val sl = if ((k.close - p.openAt) * p.direction > 10 * avgFluctuate) {
+                k.close - (k.close - p.openAt) * p.direction * 0.2
             } else if ((k.close - p.openAt) * p.direction > avgFluctuate) {
-                val msg = s"${symbol} 止损拉到成本线 ${p.openAt}"
-                logger.info(msg)
-                ntf.sendNotify(msg)
-                p.copy(stopLoss = Some(p.openAt))
+                p.openAt
             } else {
-                p
+                p.stopLoss.get
             }
+            val newSl = if((sl - p.stopLoss.get) * p.direction > 0) {
+                logger.info(s"${symbol} 止损前移: ${sl}")
+                Some(sl)
+            }else{
+                p.stopLoss
+            }
+            p.copy(stopLoss = newSl)
         })
     }
 
@@ -314,7 +315,5 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
                 }
             }
         }
-
     }
-
 }
