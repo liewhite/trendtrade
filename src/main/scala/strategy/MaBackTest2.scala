@@ -71,7 +71,7 @@ class MaBackTest2() extends BaseStrategy with KlineMixin with MacdMixin() with M
             return
         }
         // 历史数据不足， 无法参考
-        if (klines.length < 60) {
+        if (klines.length < 20) {
             return
         }
         checkAndClose()

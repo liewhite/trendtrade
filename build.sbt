@@ -1,4 +1,4 @@
-val scala3Version = "3.1.3"
+val scala3Version = "3.1.2"
 
 ThisBuild / assemblyMergeStrategy  := {
   case PathList("module-info.class") => MergeStrategy.discard

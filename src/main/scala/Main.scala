@@ -48,13 +48,13 @@ def start() = {
 }
 
 @main def main: Unit = {
-    // backtest()
-    start()
+    backtest()
+    // start()
 }
 
 def backtest() = {
     // Vector("BTCBUSD","ETHBUSD","BNBUSD","WAVESUSD","BUSD","BTCBUSD",)
-    val ks15   = data.getSymbolK("1000LUNCBUSD", "1h")
+    val ks15   = data.getSymbolK("GALABUSD", "15m")
     val bot    = MaBackTest2()
     ks15.foreach(k => {
         bot.step(k)

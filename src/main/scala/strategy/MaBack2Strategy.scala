@@ -119,7 +119,8 @@ class MaBack2Strategy(symbol: String, interval: String, trader: BinanceApi, ntf:
                 val k     = klines(0)
                 val ma    = mas(20)(0)
                 val preMa = mas(20)(1)
-                // 如果还没突破均线, 则均线方向逆势且亏损状态止损
+                logger.info(s"检查止损: ${symbol}, ${k} ${ma} ${preMa} ${p}")
+                // 如果整个K线都在均线劣势方, 则均线方向逆势且亏损状态止损
                 if ( (k.open - ma) * p.direction < 0 && (k.close - ma) * p.direction < 0) {
                     if ((ma - preMa).signum != p.direction && (k.close - p.openAt) * p.direction < 0) {
                         closed.prepend(
@@ -131,7 +132,7 @@ class MaBack2Strategy(symbol: String, interval: String, trader: BinanceApi, ntf:
                         closeCurrent()
                     }
                 }else {
-                    // 如果已突破均线，则跌破均线平仓
+                    // 如果已突破过均线实现了盈利，则跌破均线平仓
                     if( (k.close - ma) * p.direction <0 ) {
                         closed.prepend(
                           p.copy(
@@ -195,7 +196,7 @@ class MaBack2Strategy(symbol: String, interval: String, trader: BinanceApi, ntf:
                 exceptionNotify.sendNotify(msg)
             }
             case e: Exception => {
-                val msg = s"${symbol} 开仓失败， 请检查账户是否存在不一致"
+                val msg = s"${symbol} 开仓失败， 请检查账户是否存在不一致: ${e}"
                 logger.warn(msg)
                 exceptionNotify.sendNotify(msg)
             }
