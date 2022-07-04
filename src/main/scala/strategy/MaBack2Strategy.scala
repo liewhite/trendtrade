@@ -124,8 +124,8 @@ class MaBack2Strategy(symbol: String, interval: String, trader: BinanceApi, ntf:
                 // 如果还没突破均线, 则均线方向逆势且亏损状态止损
                 // 当前k线完全在均线下， 上一K线也完全在均线下,视为开仓后从未突破过均线
                 if (
-                  (k.open - ma) * p.direction < 0 && (k.close - ma) * p.direction < 0 &&
-                  (prek.open - preMa) * p.direction < 0 && (prek.close - preMa) * p.direction < 0
+                  (k.open - ma) * p.direction < 0 && (k.close - ma) * p.direction < 0
+                //   (prek.open - preMa) * p.direction < 0 && (prek.close - preMa) * p.direction < 0
                 ) {
                     if ((ma - preMa).signum != p.direction && (k.close - p.openAt) * p.direction < 0) {
                         closed.prepend(
