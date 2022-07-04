@@ -20,11 +20,18 @@ class MaBackTest2() extends BaseStrategy with KlineMixin with MacdMixin() with M
         position match {
             case Some(p) => {
                 val k     = klines(0)
+                val prek  = klines(1)
                 val ma    = mas(20)(0)
                 val preMa = mas(20)(1)
                 // 如果还没突破均线, 则均线方向逆势且亏损状态止损
-                if ( (k.open - ma) * p.direction < 0 && (k.close - ma) * p.direction < 0) {
-                    if ((ma - preMa).signum != p.direction && (k.close - p.openAt) * p.direction < 0) {
+                // 当前k线完全在均线下， 上一K线也完全在均线下,视为开仓后从未突破过均线
+                if (
+                  (k.open - ma) * p.direction < 0 && (k.close - ma) * p.direction < 0 &&
+                  (prek.open - preMa) * p.direction < 0 && (prek.close - preMa) * p.direction < 0
+                ) {
+                    if (
+                      (ma - preMa).signum != p.direction && (k.close - p.openAt) * p.direction < 0
+                    ) {
                         closed.prepend(
                           p.copy(
                             closeTime = Some(klines(0).datetime),
@@ -32,13 +39,13 @@ class MaBackTest2() extends BaseStrategy with KlineMixin with MacdMixin() with M
                           )
                         )
                         position = None
-                        println(
-                          s"close:${p} profit: ${(k.close - p.openAt) * p.direction} ${p.direction} ${k.datetime}, price ${k.close}"
-                        )
+                        // println(
+                        //   s"close:${p} profit: ${(k.close - p.openAt) * p.direction} ${p.direction} ${k.datetime}, price ${k.close}"
+                        // )
                     }
-                }else {
-                    // 如果已突破均线，则跌破均线平仓
-                    if( (k.close - ma) * p.direction <0 ) {
+                } else {
+                    // 如果已突破均线，则有效跌破均线平仓
+                    if ((k.close - ma) * p.direction < 0 && (k.close - ma).abs > avgSize() * 0.5) {
                         closed.prepend(
                           p.copy(
                             closeTime = Some(klines(0).datetime),
@@ -46,22 +53,38 @@ class MaBackTest2() extends BaseStrategy with KlineMixin with MacdMixin() with M
                           )
                         )
                         position = None
-                        println(
-                          s"close:${p} profit: ${(k.close - p.openAt) * p.direction} ${p.direction} ${k.datetime}, price ${k.close}"
-                        )
+                        // println(
+                        //   s"close:${p} profit: ${(k.close - p.openAt) * p.direction} ${p.direction} ${k.datetime}, price ${k.close}"
+                        // )
                     }
                 }
             }
-            case None    => 
+            case None    =>
         }
     }
 
     def open(direction: Int, stopLoss: BigDecimal) = {
         val k = klines(0)
-        position =Some(
+        position = Some(
           Position(1, k.datetime, direction, k.close, None, None, Some(stopLoss), None)
         )
-        println(s"open : ${position}")
+        // println(s"open : ${position}")
+    }
+    def avgSize(): BigDecimal                      = {
+        val k          = klines(0)
+        val entitySize = (k.close - k.open).abs
+        val entities   = klines
+            .slice(1, 11)
+            .map(item => {
+                if (item.close == item.open) {
+                    BigDecimal(0)
+                } else {
+                    (item.close - item.open).abs
+                }
+            })
+
+        val avgEntitySize = entities.sum / entities.length
+        avgEntitySize
     }
 
     override def step(k: Kline, history: Boolean = false): Unit = {
@@ -75,26 +98,11 @@ class MaBackTest2() extends BaseStrategy with KlineMixin with MacdMixin() with M
             return
         }
         checkAndClose()
-        if(position.nonEmpty) {
+        if (position.nonEmpty) {
             return
         }
 
-        val entitySize = (k.close - k.open).abs
-        val entities   = klines
-            .slice(1, 20)
-            .map(item => {
-                if (item.close == item.open) {
-                    BigDecimal(0)
-                } else {
-                    (item.close - item.open).abs
-                }
-            })
-
-        val avgEntitySize = entities.sum / entities.length
-        // k线实体大于过去一段时间的平均波动幅度， 视为趋势开始
-        if (entitySize <= avgEntitySize) {
-            return
-        }
+        val avgEntitySize = avgSize()
 
         val ma = mas(20)
         // 无波动，不操作
@@ -109,7 +117,9 @@ class MaBackTest2() extends BaseStrategy with KlineMixin with MacdMixin() with M
 
         // 开盘价在均线劣势方,且涨跌与均线一致
         if (
-          (k.open - ma(0)) * maDirection < 0&& (k.close - k.open) * maDirection > 0
+          ((k.close - ma(0)) * maDirection < 0 || (k.close - ma(
+            0
+          )).abs < avgEntitySize * 0.5) && (k.close - k.open) * maDirection > 0
         ) {
             val sl = if (maDirection == 1) k.low else k.high
             open(maDirection, stopLoss = sl)

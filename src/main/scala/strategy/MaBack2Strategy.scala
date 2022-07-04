@@ -117,11 +117,16 @@ class MaBack2Strategy(symbol: String, interval: String, trader: BinanceApi, ntf:
         currentPosition match {
             case Some(p) => {
                 val k     = klines(0)
+                val prek  = klines(1)
                 val ma    = mas(20)(0)
                 val preMa = mas(20)(1)
                 logger.info(s"检查止损: ${symbol}, ${k} ${ma} ${preMa} ${p}")
-                // 如果整个K线都在均线劣势方, 则均线方向逆势且亏损状态止损
-                if ( (k.open - ma) * p.direction < 0 && (k.close - ma) * p.direction < 0) {
+                // 如果还没突破均线, 则均线方向逆势且亏损状态止损
+                // 当前k线完全在均线下， 上一K线也完全在均线下,视为开仓后从未突破过均线
+                if (
+                  (k.open - ma) * p.direction < 0 && (k.close - ma) * p.direction < 0 &&
+                  (prek.open - preMa) * p.direction < 0 && (prek.close - preMa) * p.direction < 0
+                ) {
                     if ((ma - preMa).signum != p.direction && (k.close - p.openAt) * p.direction < 0) {
                         closed.prepend(
                           p.copy(
@@ -132,8 +137,8 @@ class MaBack2Strategy(symbol: String, interval: String, trader: BinanceApi, ntf:
                         closeCurrent()
                     }
                 }else {
-                    // 如果已突破过均线实现了盈利，则跌破均线平仓
-                    if( (k.close - ma) * p.direction <0 ) {
+                    // 如果已突破均线，则有效跌破均线平仓(跌破均线超过平均波动的一半)
+                    if( (k.close - ma) * p.direction < 0 && (k.close - ma).abs > avgSize() * 0.5 ) {
                         closed.prepend(
                           p.copy(
                             closeTime = Some(klines(0).datetime),
@@ -155,8 +160,8 @@ class MaBack2Strategy(symbol: String, interval: String, trader: BinanceApi, ntf:
         }
         // 查询账户总额， 余额, 如果余额小于总额的40%， 放弃开仓
         val balances    = trader.getTotalBalance()
-        if (balances._2  < balances._1 * 0.4) {
-            // NOTE: 做好合约账户被爆80%的准备,千万不能入金太多, 最多放可投资金的1/4, 这样被爆了还有机会翻
+        if (balances._2  < balances._1 * 0.1) {
+            // NOTE: 做好合约账户被爆的准备,千万不能入金太多, 最多放可投资金的1/4, 这样被爆了还有机会翻
             val msg = s"余额不足40%, 停止开仓 ${balances._2}/${balances._1}"
             logger.warn(msg)
             ntf.sendNotify(msg)
@@ -164,8 +169,8 @@ class MaBack2Strategy(symbol: String, interval: String, trader: BinanceApi, ntf:
         }
         val k           = klines(0)
         val price       = k.close
-        // 按精度取近似值, 开4成仓
-        val rawQuantity = ((balances._1 * 0.4) / price * trader.leverage)
+        // 按精度取近似值, 开1成仓
+        val rawQuantity = ((balances._1 * 0.1) / price * trader.leverage)
         val quantity    =
             BigDecimal((rawQuantity / symbolMeta.stepSize).intValue) * symbolMeta.stepSize
         val side        = if (direction == 1) TradeSide.BUY else TradeSide.SELL
@@ -203,25 +208,8 @@ class MaBack2Strategy(symbol: String, interval: String, trader: BinanceApi, ntf:
         }
     }
 
-    override def step(k: Kline, history: Boolean = false): Unit = {
-        super.step(k)
-        // 忽略历史数据， 只处理实时数据
-        if (history) {
-            return
-        }
-        logger.info(s"kline: ${k} ma: ${mas(20)(0)}")
-        // 历史数据不足， 无法参考
-        if (klines.length < 60) {
-            return
-        }
-        // 先止盈止损
-        checkAndClose()
-        // 不重复开仓
-        if(currentPosition.nonEmpty) {
-            return
-        }
-
-
+    def avgSize(): BigDecimal = {
+        val k = klines(0)
         val entitySize = (k.close - k.open).abs
         val entities   = klines
             .slice(1, 11)
@@ -234,10 +222,27 @@ class MaBack2Strategy(symbol: String, interval: String, trader: BinanceApi, ntf:
             })
 
         val avgEntitySize = entities.sum / entities.length
-        // k线实体大于过去一段时间的平均的2倍， 视为趋势开始
-        if (entitySize <= avgEntitySize) {
+        avgEntitySize
+    }
+    override def step(k: Kline, history: Boolean = false): Unit = {
+        super.step(k)
+        // 忽略历史数据， 只处理实时数据
+        if (history) {
             return
         }
+        logger.info(s"kline: ${k} ma: ${mas(20)(0)}")
+        // 历史数据不足， 无法参考
+        if (klines.length < 60) {
+            return
+        }
+
+        // 先止盈止损
+        checkAndClose()
+        // 不重复开仓
+        if(currentPosition.nonEmpty) {
+            return
+        }
+        val avgEntitySize = avgSize()
 
         val ma = mas(20)
         // 无波动，不操作
@@ -250,9 +255,11 @@ class MaBack2Strategy(symbol: String, interval: String, trader: BinanceApi, ntf:
 
         val maDirection = (ma(0) - ma(1)).signum
 
-        // 开盘价在均线劣势方或者很接近,且涨跌与均线一致
+        // 收盘价在均线劣势方或者很接近,且涨跌与均线一致
         if (
-          (k.open - ma(0)) * maDirection < 0&& (k.close - k.open) * maDirection > 0
+          ((k.close - ma(0)) * maDirection < 0 || (k.close - ma(
+            0
+          )).abs < avgEntitySize * 0.5) && (k.close - k.open) * maDirection > 0
         ) {
             try {
                 open(maDirection)

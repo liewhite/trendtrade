@@ -17,7 +17,7 @@ case class AppConfig(
     apiSecret:        String,
     notifyWebhook:    String,
     heartBeatWebhook: String,
-    exceptionWebhook: String,
+    exceptionWebhook: String
 )
 
 val logger  = Logger("main")
@@ -53,20 +53,40 @@ def start() = {
 }
 
 def backtest() = {
-    // Vector("BTCBUSD","ETHBUSD","BNBUSD","WAVESUSD","BUSD","BTCBUSD",)
-    val ks15   = data.getSymbolK("GALABUSD", "15m")
-    val bot    = MaBackTest2()
-    ks15.foreach(k => {
-        bot.step(k)
-    })
-    val profit = bot.closed
-        .map(item =>
-            (item.closeAt.get - item.openAt) * item.direction - item.openAt * 0.00036 - item.closeAt.get * 0.00036
-        )
-        .sum
-    val fee    = bot.closed.map(item => item.openAt * 0.00036 + item.closeAt.get * 0.00036).sum
+    Vector(
+      "BTCBUSD",
+      "ETHBUSD",
+      "BNBBUSD",
+      "WAVESBUSD",
+      "1000LUNCBUSD",
+      "GMTBUSD",
+      "FTMBUSD",
+      "FTTBUSD",
+      "ANCBUSD",
+      "XRPBUSD",
+      "ADABUSD",
+      "DOGEBUSD",
+      "AVAXBUSD",
+      "GALABUSD",
+      "GALBUSD",
+      "LINKBUSD"
+    ).foreach(item => {
+        val ks15   = data.getSymbolK(item, "1h")
+        val bot    = MaBackTest2()
+        ks15.foreach(k => {
+            bot.step(k)
+        })
+        val profit = bot.closed
+            .map(item =>
+                (item.closeAt.get - item.openAt) * item.direction - item.openAt * 0.00036 - item.closeAt.get * 0.00036
+            )
+            .sum
+        val fee    = bot.closed.map(item => item.openAt * 0.00036 + item.closeAt.get * 0.00036).sum
 
-    println(
-      s"tx count: ${bot.closed.length} ,fee: ${fee} profit: ${profit} precent: ${(profit / bot.klines(0).close * 100).intValue}%"
-    )
+        println(
+          s"${item} tx count: ${bot.closed.length} ,fee: ${fee} profit: ${profit} precent: ${(profit / bot.klines(0).close * 100).intValue}%"
+        )
+
+    })
+
 }
