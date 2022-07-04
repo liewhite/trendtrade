@@ -23,12 +23,19 @@ class MaBackTest2() extends BaseStrategy with KlineMixin with MacdMixin() with M
                 val prek  = klines(1)
                 val ma    = mas(20)(0)
                 val preMa = mas(20)(1)
-                // 如果还没突破均线, 则均线方向逆势且亏损状态止损
-                // 当前k线完全在均线下， 上一K线也完全在均线下,视为开仓后从未突破过均线
+                // 均线调头， 且K线收到劣势侧超过平均波动的一半,平仓
                 if (
-                  (k.open - ma) * p.direction < 0 && (k.close - ma) * p.direction < 0
-                //   (prek.open - preMa) * p.direction < 0 && (prek.close - preMa) * p.direction < 0
+                  (k.close - ma) * p.direction < avgSize() * -0.5 && (ma - preMa).signum != p.direction
                 ) {
+                    closed.prepend(
+                      p.copy(
+                        closeTime = Some(klines(0).datetime),
+                        closeAt = Some(klines(0).close)
+                      )
+                    )
+                    position = None
+                    // k线整个处于劣势侧， 且均线调头, 前一条件无法处理开盘收盘都在劣势侧的情况
+                } else if ((k.open - ma) * p.direction < 0 && (k.close - ma) * p.direction < 0) {
                     if (
                       (ma - preMa).signum != p.direction && (k.close - p.openAt) * p.direction < 0
                     ) {
@@ -45,7 +52,7 @@ class MaBackTest2() extends BaseStrategy with KlineMixin with MacdMixin() with M
                     }
                 } else {
                     // 如果已突破均线，则有效跌破均线平仓
-                    if ((k.close - ma) * p.direction < 0 && (k.close - ma).abs > avgSize() * 0.5) {
+                    if ((k.close - ma) * p.direction < avgSize() * -0.5) {
                         closed.prepend(
                           p.copy(
                             closeTime = Some(klines(0).datetime),

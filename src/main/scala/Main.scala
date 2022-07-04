@@ -48,8 +48,8 @@ def start() = {
 }
 
 @main def main: Unit = {
-    // backtest()
-    start()
+    backtest()
+    // start()
 }
 
 def backtest() = {
