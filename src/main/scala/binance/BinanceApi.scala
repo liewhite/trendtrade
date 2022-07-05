@@ -562,7 +562,9 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             }
         }
     }
-    startHeartBeatLoop()
-    listenOrder()
-    Await.result(streamReady.future, 10.seconds)
+    def start() = {
+        startHeartBeatLoop()
+        listenOrder()
+        Await.result(streamReady.future, 10.seconds)
+    }
 }

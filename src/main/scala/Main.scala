@@ -37,7 +37,7 @@ def start() = {
       heartBeatBot
     ) {}
     logger.info("get all busd symbols")
-    val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith("BUSD")).map(_.symbol)
+    val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith("BUSD")).filter(!_.symbol.contains("DODO")).map(_.symbol)
     val interval     = cfg.interval
     logger.info("create strategies for symbols")
     val strategies   = symbols.map(s => {
@@ -48,29 +48,20 @@ def start() = {
 }
 
 @main def main: Unit = {
-    backtest()
-    // start()
+    // backtest()
+    start()
 }
 
 def backtest() = {
-    Vector(
-      "BTCBUSD",
-      "ETHBUSD",
-      "BNBBUSD",
-      "WAVESBUSD",
-      "1000LUNCBUSD",
-      "GMTBUSD",
-      "FTMBUSD",
-      "FTTBUSD",
-      "ANCBUSD",
-      "XRPBUSD",
-      "ADABUSD",
-      "DOGEBUSD",
-      "AVAXBUSD",
-      "GALABUSD",
-      "GALBUSD",
-      "LINKBUSD"
-    ).foreach(item => {
+    val cfg          = loadConfig[AppConfig]("config.yaml")
+    val binanceApi   = new BinanceApi(
+      cfg.apiKey,
+      cfg.apiSecret,
+      5,
+      null
+    ) {}
+    val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith("BUSD")).map(_.symbol)
+    val total = symbols.map(item => {
         val ks15   = data.getSymbolK(item, "1h")
         val bot    = MaBackTest2()
         ks15.foreach(k => {
@@ -86,7 +77,8 @@ def backtest() = {
         println(
           s"${item} tx count: ${bot.closed.length} ,fee: ${fee} profit: ${profit} precent: ${(profit / bot.klines(0).close * 100).intValue}%"
         )
-
-    })
+        (profit / bot.klines(0).close * 100).intValue
+    }).sum
+    println("total profit: " + total)
 
 }
