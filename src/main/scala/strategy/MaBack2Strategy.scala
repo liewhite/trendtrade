@@ -117,33 +117,34 @@ class MaBack2Strategy(
         }
 
     }
-    // 止盈止损
-    // 震荡时提高平仓条件,避免频繁止损
-    // 1. 盈利时不操作
+
     def checkAndClose(): Unit = {
         currentPosition match {
             case Some(p) => {
-                val k     = klines(0)
-                val prek  = klines(1)
-                val ma    = mas(20)(0)
-                val preMa = mas(20)(1)
+                val k        = klines(0)
+                val prek     = klines(1)
+                val ma       = mas(20)(0)
+                val preMa    = mas(20)(1)
                 val avgKSize = avgSize()
                 logger.info(s"检查止损: ${symbol}, ${k} ${ma} ${preMa} ${p}")
                 // 收于均线劣势侧
-                if((k.close - ma) * p.direction < 0) {
-                  // 收亏损K
-                  if( (k.close - k.open) * p.direction < 0) {
-                    // 盈利或亏损较少
-                    val slSize = if((k.close - p.openAt) * p.direction < avgKSize * 2 && (k.close - p.openAt) * p.direction > -2 * avgKSize) {
-                      avgKSize * 2.5
-                    }else {
-                      avgKSize * 0.8
+                if ((k.close - ma) * p.direction < 0) {
+                    // 收亏损K
+                    if ((k.close - k.open) * p.direction < 0) {
+                        val slSize = if (
+                          (k.close - p.openAt) * p.direction < avgKSize * 2 && (k.close - p.openAt) * p.direction > -2 * avgKSize
+                        ) {
+                            // 盈利或亏损较少, 为避免频繁止损， 放大止损
+                            avgKSize * 2.5
+                        } else {
+                            // 盈利较大， 设置较小止损， 不参与后续震荡
+                            avgKSize * 0.8
+                        }
+                        // 跌破均线大于 slSize止损
+                        if ((k.close - ma) * p.direction < -slSize) {
+                            closeCurrent()
+                        }
                     }
-                    // 跌破均线大于 slSize止损
-                    if( (k.close - ma) * p.direction < -slSize) {
-                      closeCurrent()             
-                    }
-                  }
                 }
             }
             case None    =>

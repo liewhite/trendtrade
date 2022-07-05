@@ -36,6 +36,7 @@ def start() = {
       5,
       heartBeatBot
     ) {}
+    binanceApi.start()
     logger.info("get all busd symbols")
     val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith("BUSD")).filter(!_.symbol.contains("DODO")).map(_.symbol)
     val interval     = cfg.interval
