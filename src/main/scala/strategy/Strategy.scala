@@ -4,12 +4,13 @@ import java.time.LocalDateTime
 import scala.collection.mutable
 
 case class Kline(
-    datetime: LocalDateTime,
-    open:     BigDecimal,
-    low:      BigDecimal,
-    high:     BigDecimal,
-    close:    BigDecimal,
-    vol:      BigDecimal
+    datetime:   LocalDateTime,
+    open:       BigDecimal,
+    low:        BigDecimal,
+    high:       BigDecimal,
+    close:      BigDecimal,
+    vol:        BigDecimal,
+    persistent: Boolean = false
 )
 
 case class Position(
@@ -30,58 +31,25 @@ abstract class AStrategy {
         }
     }
 
-    def step(k: Kline, history: Boolean = false): Unit
+    def tick(k: Kline, history: Boolean = false): Unit
 }
 
 class BaseStrategy extends AStrategy {
-    override def step(k: Kline, history: Boolean = false): Unit = {}
+    override def tick(k: Kline, history: Boolean = false): Unit = {}
 }
 
 trait KlineMixin extends AStrategy {
     val klines: mutable.ListBuffer[Kline] = mutable.ListBuffer.empty
 
-    abstract override def step(k: Kline, history: Boolean = false): Unit = {
-        super.step(k)
-        klines.prepend(k)
-        queueList(klines, 1000)
-    }
-}
-
-trait VolMaMixin(intervals: Vector[Int]) extends AStrategy {
-    KL: KlineMixin =>
-    val volMas: mutable.Map[Int, mutable.ListBuffer[BigDecimal]] = mutable.Map.from(
-      intervals
-          .map(i => {
-              (i, mutable.ListBuffer.empty[BigDecimal])
-          })
-    )
-
-    abstract override def step(k: Kline, history: Boolean = false): Unit = {
-        super.step(k)
-        intervals.foreach(interval => {
-            val ks = klines.slice(0, interval)
-            if (ks.length != 0) {
-                val avg = ks.map(_.vol).sum / ks.length
-                volMas(interval).prepend(avg)
-            }
-        })
-        volMas.foreach(item => {
-            queueList(item._2, 1000)
-        })
-    }
-
-    def volMaDirection(interval: Int): Int = {
-        if (volMas(interval).length < 2) {
-            0
+    abstract override def tick(k: Kline, history: Boolean = false): Unit = {
+        super.tick(k, history)
+        // 如果没有pending的K线， 直接插入
+        if (klines.isEmpty || klines(0).persistent) {
+            klines.prepend(k)
         } else {
-            if (volMas(interval)(0) > volMas(interval)(1)) {
-                1
-            } else if (volMas(interval)(0) < volMas(interval)(1)) {
-                -1
-            } else {
-                0
-            }
+            klines(0) = k
         }
+        queueList(klines, 1000)
     }
 }
 
@@ -94,13 +62,17 @@ trait MaMixin(intervals: Vector[Int] = Vector(5, 10, 20)) extends AStrategy {
           })
     )
 
-    abstract override def step(k: Kline, history: Boolean = false): Unit = {
-        super.step(k)
+    abstract override def tick(k: Kline, history: Boolean = false): Unit = {
+        super.tick(k, history)
         intervals.foreach(interval => {
             val ks = klines.slice(0, interval)
             if (ks.length != 0) {
                 val avg = ks.map(_.close).sum / ks.length
-                mas(interval).prepend(avg)
+                if (klines.isEmpty || klines(0).persistent) {
+                    mas(interval).prepend(avg)
+                } else {
+                    mas(interval)(0) = avg
+                }
             }
             queueList(mas(interval), 1000)
         })
@@ -129,12 +101,20 @@ trait MacdMixin(fast: Int = 12, slow: Int = 26, mid: Int = 9) extends AStrategy 
     KL: KlineMixin =>
     val macd: mutable.ListBuffer[Macd] = mutable.ListBuffer.empty
 
-    abstract override def step(k: Kline, history: Boolean = false): Unit = {
-        super.step(k)
+    abstract override def tick(k: Kline, history: Boolean = false): Unit = {
+        super.tick(k, history)
         if (klines.length == 1) {
-            macd.prepend(Macd(k.datetime, k.close, k.close, 0, 0, 0))
+            if (klines.isEmpty || klines(0).persistent) {
+                macd.prepend(Macd(k.datetime, k.close, k.close, 0, 0, 0))
+            } else {
+                macd(0) = Macd(k.datetime, k.close, k.close, 0, 0, 0)
+            }
         } else {
-            macd.prepend(macd(0).next(k, k.close, fast, slow, mid))
+            if (klines.isEmpty || klines(0).persistent) {
+                macd.prepend(macd(0).next(k, k.close, fast, slow, mid))
+            } else {
+                macd(0) = macd(0).next(k, k.close, fast, slow, mid)
+            }
         }
         queueList(macd, 1000)
     }
@@ -152,8 +132,8 @@ trait KdjMixin(arg1: Int = 9, arg2: Int = 3, arg3: Int = 3) extends AStrategy {
     KL: KlineMixin =>
     val kdj: mutable.ListBuffer[Kdj] = mutable.ListBuffer.empty
 
-    abstract override def step(k: Kline, history: Boolean = false): Unit = {
-        super.step(k)
+    abstract override def tick(k: Kline, history: Boolean = false): Unit = {
+        super.tick(k, history)
         if (klines.length < 10) {
             return
         }
@@ -173,7 +153,11 @@ trait KdjMixin(arg1: Int = 9, arg2: Int = 3, arg3: Int = 3) extends AStrategy {
             val newJ   = 3 * newK - 2 * newD
             Kdj(k, rsv, newK, newD, newJ)
         }
-        kdj.prepend(newKdj)
+        if (klines.isEmpty || klines(0).persistent) {
+            kdj.prepend(newKdj)
+        } else {
+            kdj(0) = newKdj
+        }
         queueList(kdj, 1000)
     }
 }

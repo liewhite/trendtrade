@@ -69,8 +69,8 @@ class MaBackTest() extends BaseStrategy with KlineMixin with MacdMixin() with Ma
         println(s"open : ${position}")
     }
 
-    override def step(k: Kline, history: Boolean = false): Unit = {
-        super.step(k)
+    override def tick(k: Kline, history: Boolean = false): Unit = {
+        super.tick(k)
         // 忽略历史数据， 只处理实时数据
         if (history) {
             return

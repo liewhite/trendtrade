@@ -202,7 +202,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
     def subscribeKlines(
         symbol: String,
         interval: String,
-        callback: Kline => Unit
+        klineCallback: Kline => Unit
     ): Unit = {
         val client = new OkHttpClient()
         val req    = new Request.Builder()
@@ -221,21 +221,20 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                   // 记录心跳时间
                   heartBeat.update(symbol, LocalDateTime.now)
                   // logger.info(s"market info: ${res}")
-                  if (res.k.x) {
-                      callback(
-                        Kline(
-                          LocalDateTime.ofInstant(
-                            Instant.ofEpochMilli(((res.k.t / 1000).longValue + 1) * 1000),
-                            ZoneId.systemDefault
-                          ),
-                          BigDecimal(res.k.o),
-                          BigDecimal(res.k.l),
-                          BigDecimal(res.k.h),
-                          BigDecimal(res.k.c),
-                          BigDecimal(res.k.v)
-                        )
-                      )
-                  }
+                  klineCallback(
+                    Kline(
+                      LocalDateTime.ofInstant(
+                        Instant.ofEpochMilli(((res.k.t / 1000).longValue + 1) * 1000),
+                        ZoneId.systemDefault
+                      ),
+                      BigDecimal(res.k.o),
+                      BigDecimal(res.k.l),
+                      BigDecimal(res.k.h),
+                      BigDecimal(res.k.c),
+                      BigDecimal(res.k.v),
+                      res.k.x
+                    )
+                  )
               }
 
               override def onClosing(x: WebSocket, y: Int, z: String): Unit = {
@@ -252,7 +251,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                   logger.info("market websocket closed, reloading")
                   s.cancel()
                   Thread.sleep(3000)
-                  subscribeKlines(symbol, interval, callback)
+                  subscribeKlines(symbol, interval, klineCallback)
               }
           }
         )
@@ -444,10 +443,10 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             maxTry -= 1
         }
         orders.remove(orderRes.orderId)
-        if(maxTry > 0) {
-          orderRes.orderId
-        }else {
-          throw Exception("timeout")
+        if (maxTry > 0) {
+            orderRes.orderId
+        } else {
+            throw Exception("timeout")
         }
     }
 
@@ -562,7 +561,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             }
         }
     }
-    def start() = {
+    def start()              = {
         startHeartBeatLoop()
         listenOrder()
         Await.result(streamReady.future, 10.seconds)

@@ -27,7 +27,7 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
         loadHistory()
         loadPosition()
         // 开始websocket
-        trader.subscribeKlines(symbol, interval, k => step(k))
+        trader.subscribeKlines(symbol, interval, k => tick(k))
     }
 
     def symbolMeta = trader.symbolMeta(symbol)
@@ -36,7 +36,7 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
     def loadHistory() = {
         val history = trader.getHistory(symbol, interval)
         // 去掉第一条
-        history.dropRight(1).foreach(step(_, true))
+        history.dropRight(1).foreach(tick(_, true))
         logger.info(
           s"load history of ${symbol} , last kline: ${klines(0)} ma: ${mas(20)(0)}"
         )
@@ -247,8 +247,8 @@ class MaBackStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: 
         }
     }
 
-    override def step(k: Kline, history: Boolean = false): Unit = {
-        super.step(k)
+    override def tick(k: Kline, history: Boolean = false): Unit = {
+        super.tick(k)
         // 忽略历史数据， 只处理实时数据
         if (history) {
             return

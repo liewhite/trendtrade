@@ -53,9 +53,9 @@ def getLatest500K(symbol: String, interval: String): List[Kline] = {
         )
 }
 
-def getSymbolK(symbol: String, interval: String, limit: Int = 800): List[Kline] = {
-    val endTime   = ZonedDateTime.now()
-    val startTime = endTime.minusDays(30)
+def getSymbolK(symbol: String, interval: String, limit: Int = 1500): List[Kline] = {
+    val endTime   = ZonedDateTime.now().minusDays(0)
+    val startTime = endTime.minusDays(60)
     val startTs   = startTime.toInstant().toEpochMilli
     val endTs     = endTime.toInstant().toEpochMilli
     val response  = quickRequest

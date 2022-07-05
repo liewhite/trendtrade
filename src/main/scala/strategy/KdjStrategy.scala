@@ -13,24 +13,24 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 
-class MaBack2Strategy(
-    symbol:          String,
-    interval:        String,
-    trader:          BinanceApi,
-    ntf:             Notify,
-    exceptionNotify: Notify
-) extends BaseStrategy
+// kdj叉， macd顺势， 价格处于均线劣势方且大于平均波动的5倍
+// 以tick为准
+// 止盈4倍波动值， 止损2倍
+class KdjStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: Notify,exceptionNotify: Notify)
+    extends BaseStrategy
     with KlineMixin
     with MacdMixin()
+    with KdjMixin()
     with MaMixin(Vector(20)) {
 
     val logger                            = Logger("strategy")
     var currentPosition: Option[Position] = None
     val closed                            = mutable.ListBuffer.empty[Position]
 
+    // 加载历史K线
     def start() = {
         loadHistory()
-        loadPosition()
+        // loadPosition()
         // 开始websocket
         trader.subscribeKlines(symbol, interval, k => tick(k))
     }
@@ -51,14 +51,45 @@ class MaBack2Strategy(
     def loadPosition(): Unit = {
         logger.info(s"load positions of ${symbol}")
         // 获取持仓,过滤出symbol
-        val positions = trader.getPositions(symbol)
+        val positions    = trader.getPositions(symbol)
         if (positions.length == 0) {
             return
         }
         if (positions.length > 1) {
             throw Exception("positions > 1, strategy only support one position")
         }
-        val p         = positions(0)
+        // 获取当前价格， 计算止损价
+        val currentPrice = trader.getSymbolPrice(symbol)
+        // 获取开仓时间， 拿到low，high
+        val trades       = trader.getTrades(symbol)
+        // 没有查询到成交记录， 哪来的持仓， 应该不会发生
+        if (trades.isEmpty) {
+            return
+        }
+        val lastTrade    = trades.last
+        val tradeTime    = LocalDateTime.ofInstant(
+          Instant.ofEpochMilli(lastTrade.time),
+          ZoneId.systemDefault
+        )
+        logger.info(s"${symbol} 开仓时间: ${tradeTime}")
+        val p            = positions(0)
+        // 遍历k线， 找到小于开仓时间 + interval 的那一条
+        val tradeK       = klines.find(item =>
+            !item.datetime.isAfter(tradeTime.minus(Duration.parse("PT" + interval)))
+        )
+        // 找到K线则使用正确的止损， 找不到则开仓价止损
+        val sl           = tradeK match {
+            case None    => {
+                logger.info(s"找不到开仓k线, 使用成本价止损, ${p}")
+                p.entryPrice
+            }
+            case Some(k) => {
+                val v = if (p.positionAmt.signum == 1) k.low else k.high
+                logger.info(s"找到开仓k线 ${k}, 设置止损 ${v} ${p}")
+                v
+            }
+        }
+
         // 加入持仓
         val direction = p.positionAmt.signum
         currentPosition = Some(
@@ -69,10 +100,46 @@ class MaBack2Strategy(
             p.entryPrice,
             None,
             None,
-            None,
+            Some(sl),
             None
           )
         )
+        modifyStopLoss()
+    }
+
+    // 根据盈亏设置止盈止损线
+    // 盈利超过10根K线平均值的1倍，则止损拉到成本线
+    // 盈利超过10根K线平均值的10倍，则80%浮动止盈
+    def modifyStopLoss(): Unit = {
+        if (currentPosition.isEmpty) {
+            return
+        }
+        val k  = klines(0)
+        val ks = klines.slice(0, 10)
+
+        val avgFluctuate =
+            ks.map(item => (item.close - item.open).abs).sum / ks.length
+
+        currentPosition = currentPosition.map(p => {
+            // 跟踪止损
+            // 跟当前止损位做比较， 只能前移， 不能退后
+            val sl = if ((k.close - p.openAt) * p.direction > 10 * avgFluctuate) {
+                k.close - (k.close - p.openAt) * 0.2
+            } else if ((k.close - p.openAt) * p.direction > avgFluctuate) {
+                p.openAt
+            } else {
+                p.stopLoss.get
+            }
+            val newSl = if((sl - p.stopLoss.get) * p.direction > 0) {
+                val msg = s"${symbol} 止损前移: ${sl}"
+                logger.info(msg)
+                ntf.sendNotify(msg)
+                Some(sl)
+            }else{
+                p.stopLoss
+            }
+            p.copy(stopLoss = newSl)
+        })
     }
 
     def closeCurrent(): Unit = {
@@ -117,57 +184,36 @@ class MaBack2Strategy(
         }
 
     }
-
+    // 止盈止损
     def checkAndClose(): Unit = {
+        val k = klines(0)
         currentPosition match {
-            case Some(p) => {
-                val k        = klines(0)
-                val prek     = klines(1)
-                val ma       = mas(20)(0)
-                val preMa    = mas(20)(1)
-                val avgKSize = avgSize()
-                logger.info(s"检查止损: ${symbol}, ${k} ${ma} ${preMa} ${p}")
-                // 收于均线劣势侧
-                if ((k.close - ma) * p.direction < 0) {
-                    // 收亏损K
-                    if ((k.close - k.open) * p.direction < 0) {
-                        val slSize = if (
-                          (k.close - p.openAt) * p.direction < avgKSize * 2 && (k.close - p.openAt) * p.direction > -2 * avgKSize
-                        ) {
-                            // 盈利或亏损较少, 为避免频繁止损， 放大止损
-                            avgKSize * 2.5
-                        } else {
-                            // 盈利较大， 设置较小止损， 不参与后续震荡
-                            avgKSize * 0.8
-                        }
-                        // 跌破均线大于 slSize止损
-                        if ((k.close - ma) * p.direction < -slSize) {
-                            closeCurrent()
-                        }
-                    }
+            case None       =>
+            case Some(item) => {
+                if ((klines(0).close - item.stopLoss.get) * item.direction < 0) {
+                    closeCurrent()
                 }
             }
-            case None    =>
         }
     }
 
     // 发送订单， 等待成交
-    def open(direction: Int): Unit = {
+    def open(direction: Int, stopLoss: BigDecimal): Unit = {
         if (currentPosition.nonEmpty) {
             return
         }
-        // 查询账户总额， 余额, 如果余额小于总额的40%， 放弃开仓
+        // 查询账户总额， 余额, 如果余额小于总额的10%()， 放弃开仓
         val balances    = trader.getTotalBalance()
-        if (balances._2 < balances._1 * 0.1) {
-            // NOTE: 做好合约账户被爆的准备,千万不能入金太多, 最多放可投资金的1/4, 这样被爆了还有机会翻
-            val msg = s"余额不足40%, 停止开仓 ${balances._2}/${balances._1}"
+        if (balances._2 * 10 < balances._1) {
+            // NOTE: 做好合约账户被爆90%的准备,千万不能入金太多, 最多放可投资金的1/4, 这样被爆了还有机会翻
+            val msg = s"余额不足10%, 停止开仓 ${balances._2}/${balances._1}"
             logger.warn(msg)
             ntf.sendNotify(msg)
             return
         }
         val k           = klines(0)
         val price       = k.close
-        // 按精度取近似值, 开1成仓
+        // 按精度取近似值
         val rawQuantity = ((balances._1 * 0.1) / price * trader.leverage)
         val quantity    =
             BigDecimal((rawQuantity / symbolMeta.stepSize).intValue) * symbolMeta.stepSize
@@ -188,7 +234,7 @@ class MaBack2Strategy(
                 k.close,
                 None,
                 None,
-                None,
+                Some(stopLoss),
                 None
               )
             )
@@ -199,15 +245,29 @@ class MaBack2Strategy(
                 exceptionNotify.sendNotify(msg)
             }
             case e: Exception => {
-                val msg = s"${symbol} 开仓失败， 请检查账户是否存在不一致: ${e}"
+                val msg = s"${symbol} 开仓失败， 请检查账户是否存在不一致"
                 logger.warn(msg)
                 exceptionNotify.sendNotify(msg)
             }
         }
     }
 
-    def avgSize(): BigDecimal                                   = {
-        val k          = klines(0)
+    override def tick(k: Kline, history: Boolean = false): Unit = {
+        super.tick(k)
+        // 忽略历史数据， 只处理实时数据
+        if (history) {
+            return
+        }
+        logger.info(s"kline: ${k} ma: ${mas(20)(0)}")
+        // 历史数据不足， 无法参考
+        if (klines.length < 20) {
+            return
+        }
+        // 先止盈止损
+        checkAndClose()
+        // 然后移动剩余仓位的止损位
+        modifyStopLoss()
+
         val entitySize = (k.close - k.open).abs
         val entities   = klines
             .slice(1, 11)
@@ -220,27 +280,10 @@ class MaBack2Strategy(
             })
 
         val avgEntitySize = entities.sum / entities.length
-        avgEntitySize
-    }
-    override def tick(k: Kline, history: Boolean = false): Unit = {
-        super.tick(k)
-        // 忽略历史数据， 只处理实时数据
-        if (history) {
+        // k线实体大于过去一段时间的平均的2倍， 视为趋势开始
+        if (entitySize <= avgEntitySize * 2) {
             return
         }
-        logger.info(s"kline: ${k} ma: ${mas(20)(0)}")
-        // 历史数据不足， 无法参考
-        if (klines.length < 60) {
-            return
-        }
-
-        // 先止盈止损
-        checkAndClose()
-        // 不重复开仓
-        if (currentPosition.nonEmpty) {
-            return
-        }
-        val avgEntitySize = avgSize()
 
         val ma = mas(20)
         // 无波动，不操作
@@ -250,17 +293,26 @@ class MaBack2Strategy(
         if (ma(0) == ma(1)) {
             return
         }
+        // 有持仓， 不加仓
+        if (currentPosition.nonEmpty) {
+            return
+        }
 
         val maDirection = (ma(0) - ma(1)).signum
 
-        // 收盘价在均线劣势方或者很接近,且涨跌与均线一致
+        // 开盘价在均线劣势方或者很接近,且涨跌与均线一致
         if (
-          ((k.close - ma(0)) * maDirection < 0 || (k.close - ma(
+          ((k.open - ma(0)) * maDirection < 0 || (k.open - ma(
             0
-          )).abs < avgEntitySize * 0.5) && (k.close - k.open) * maDirection > 0
+          )).abs < avgEntitySize) && (k.close - k.open) * maDirection > 0
         ) {
+            // 已有持仓， 忽略
+            if (currentPosition.nonEmpty && currentPosition.get.direction == maDirection) {
+                return
+            }
+            val sl = if (maDirection == 1) k.low else k.high
             try {
-                open(maDirection)
+                open(maDirection, stopLoss = sl)
             } catch {
                 case e: Exception => {
                     val msg = s"开仓失败，请检查账户一致性 ${symbol} ${k.datetime} ${e}"
