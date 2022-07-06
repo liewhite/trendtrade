@@ -15,7 +15,7 @@ import notifier.Notify
 
 // kdj叉， macd顺势， 价格处于均线劣势方且大于平均波动的5倍
 // 以tick为准
-// 止盈4倍波动值， 止损2倍
+// 止盈2倍波动值， 止损1倍
 class KdjStrategy(
     symbol:          String,
     interval:        String,
@@ -51,6 +51,13 @@ class KdjStrategy(
         )
     }
 
+    def formatQuantity(n: BigDecimal): BigDecimal = {
+        BigDecimal((n / symbolMeta.stepSize).intValue) * symbolMeta.stepSize
+    }
+    def formatPrice(n: BigDecimal): BigDecimal = {
+        BigDecimal((n / symbolMeta.priceStep).intValue) * symbolMeta.priceStep
+    }
+
     // 发送订单， 等待成交
     // 止盈止损
     def open(direction: Int, stopLoss: BigDecimal, tp: BigDecimal): Unit = {
@@ -70,14 +77,13 @@ class KdjStrategy(
         val price       = k.close
         // 按精度取近似值
         val rawQuantity = ((balances._1 * 0.3) / price * trader.leverage)
-        val quantity    =
-            BigDecimal((rawQuantity / symbolMeta.stepSize).intValue) * symbolMeta.stepSize
+        val quantity    = formatQuantity(rawQuantity)
         val side        = if (direction == 1) TradeSide.BUY else TradeSide.SELL
         val msg         = s"触发开仓 ${symbol}, ${side} ${quantity}, k: ${k}"
         logger.info(msg)
         ntf.sendNotify(msg)
         try {
-            trader.sendOrder(symbol, side, quantity, Some(stopLoss), Some(tp))
+            trader.sendOrder(symbol, side, quantity, Some(formatPrice(stopLoss)), Some(formatPrice(tp)))
             val msg = s"开仓成功 ${symbol}, ${side} ${quantity} sl: ${stopLoss} tp: ${tp}"
             logger.info(msg)
             ntf.sendNotify(msg)
@@ -123,7 +129,7 @@ class KdjStrategy(
         avgEntitySize
     }
 
-    def metricTick(k: Kline) = {
+    def metricTick(k: Kline)                           = {
         klines.tick(k)
         ma.tick(k)
         macd.tick(k)
@@ -139,35 +145,33 @@ class KdjStrategy(
         if (klines.data.length < 20) {
             return
         }
-        // println(macd.data.slice(0,20).map(_.bar).mkString(","))
-        println(kdj.data.slice(0,20).map(_.j).mkString(","))
-        // logger.info(s"$")
         // 无持仓才开仓
         if (currentPosition.isEmpty) {
+            // logger.info(s"${symbol} ${kdj.data(0).k} ${kdj.data(0).d} ${kdj.data(0).j}")
             // kdj叉， macd顺势， 价格处于均线劣势方且大于平均波动的5倍
             // 以tick为准
             // 止盈4倍波动值， 止损2倍
             val kdjDir  = kdj.kdjDirection
             val macdDir = macd.macdDirection
             val maValue = ma.data(0).value
-            // logger.info(s"kdj:${kdj.data(0).k} ${kdj.data(0).d} ${kdj.data(0).j}")
 
             if (kdjDir != 0) {
+                // logger.info(s"${symbol} kdj ${if(kdjDir > 0) "金叉" else "死叉"}")
                 val az = avgSize()
                 if (
-                  macdDir == kdjDir && (k.close - maValue) * macdDir < 0 && (k.close - maValue).abs > az * 5
+                  macdDir == kdjDir &&
+                  ((k.close - maValue) * macdDir < 0 || (k.close - maValue).abs < az * 0.2)
                 ) {
                     val positions = trader.getPositions(symbol)
                     if (positions.length != 0) {
                         return
                     }
-                    // 2倍止损， 4倍止盈
+                    // 1倍止损， 2倍止盈
                     logger.info(
                       s"触发开仓: ${symbol}, price: ${k.close} ma: ${ma.data(1).value},${ma.data(0).value} kdj: ${kdj
                               .data(1)}, ${kdj.data(1)} macd: ${macd.data(1).bar},${macd.data(0).bar}"
                     )
-                    currentPosition = Some(null)
-                    // open(kdjDir, k.close - (az * 2) * kdjDir, k.close + (az * 4) * kdjDir)
+                    open(kdjDir, k.close - (az * 1) * kdjDir, k.close + (az * 2) * kdjDir)
                 }
             }
         }

@@ -112,7 +112,8 @@ case class SymbolMetaResponse(
 
 case class SymbolMeta(
     symbol:   String,
-    stepSize: BigDecimal
+    stepSize: BigDecimal,
+    priceStep: BigDecimal
 )
 case class TradeResponse(
     symbol: String,
@@ -157,7 +158,13 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                               .stepSize
                               .get
                         )
-                        SymbolMeta(item.symbol, stepSize)
+                        val priceStep = BigDecimal(
+                          item.filters
+                              .filter(_.filterType == "PRICE_FILTER")(0)
+                              .tickSize
+                              .get
+                        )
+                        SymbolMeta(item.symbol, stepSize, priceStep)
                     })
                     .map(item => (item.symbol, item))
                     .toMap
@@ -189,7 +196,13 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                               .stepSize
                               .get
                         )
-                        SymbolMeta(item.symbol, stepSize)
+                        val priceStep = BigDecimal(
+                          item.filters
+                              .filter(_.filterType == "PRICE_FILTER")(0)
+                              .tickSize
+                              .get
+                        )
+                        SymbolMeta(item.symbol, stepSize, priceStep)
                     })
                     .map(item => (item.symbol, item))
                     .toMap

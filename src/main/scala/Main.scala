@@ -13,6 +13,7 @@ import com.typesafe.scalalogging.Logger
 
 case class AppConfig(
     interval:         String,
+    quoteSymbol:      String,
     apiKey:           String,
     apiSecret:        String,
     notifyWebhook:    String,
@@ -45,10 +46,11 @@ def start() = {
     //     .filter(!_.symbol.contains("DODO"))
     //     .map(_.symbol)
     val interval     = cfg.interval
-    val symbols = Vector("BTCBUSD")
+    val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith(cfg.quoteSymbol))
+    // val symbols = Vector("BTCBUSD")
     logger.info("create strategies for symbols")
     val strategies   = symbols.map(s => {
-        val bot = KdjStrategy(s, interval, binanceApi, notifyBot, exceptionBot)
+        val bot = KdjStrategy(s.symbol, interval, binanceApi, notifyBot, exceptionBot)
         bot.start()
         bot
     })
