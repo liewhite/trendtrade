@@ -39,10 +39,9 @@ def start() = {
     ) {}
     binanceApi.start()
     logger.info("get all busd symbols")
-    // binanceApi.sendOrder("BTCBUSD", TradeSide.BUY, 0.001, Some(30000), Some(10000))
+    // binanceApi.sendOrder("BTCBUSD", TradeSide.BUY, 0.001, Some(10000), Some(30000))
     val interval     = cfg.interval
     val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith(cfg.quoteSymbol))
-    // val symbols = Vector("BTCBUSD")
     logger.info("create strategies for symbols")
     val strategies   = symbols.map(s => {
         val bot = KdjStrategy(s.symbol, interval, binanceApi, notifyBot, exceptionBot)

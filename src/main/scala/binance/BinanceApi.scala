@@ -461,7 +461,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
           "newOrderRespType" -> "RESULT"
         )
 
-        val batchOrderUrl = uri"${binanceHttpBaseUrl}/fapi/v1/batchOrders"
+        val batchOrderUrl   = uri"${binanceHttpBaseUrl}/fapi/v1/batchOrders"
         val signedOpenOrder = signReq(uri"${batchOrderUrl}?batchOrders=${Vector(order).toJson}")
         logger.info(s"send order: ${signedOpenOrder}")
         val lres            = quickRequest
@@ -484,8 +484,8 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             throw Exception("timeout")
         }
 
-        var batchOrders   = Vector.empty[Map[String, String]]
-        val stopSide      = if (side == TradeSide.BUY) TradeSide.SELL else TradeSide.BUY
+        var batchOrders = Vector.empty[Map[String, String]]
+        val stopSide    = if (side == TradeSide.BUY) TradeSide.SELL else TradeSide.BUY
         if (tp.nonEmpty) {
             batchOrders = batchOrders.appended(
               Map(
@@ -495,7 +495,8 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                 "closePosition"    -> "true",
                 "stopPrice"        -> tp.get.toString,
                 "timeInForce"      -> "GTE_GTC",
-                "newOrderRespType" -> "RESULT"
+                "newOrderRespType" -> "RESULT",
+                "workingType"      -> "CONTRACT_PRICE"
               )
             )
         }
@@ -508,7 +509,8 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                 "closePosition"    -> "true",
                 "stopPrice"        -> sl.get.toString,
                 "timeInForce"      -> "GTE_GTC",
-                "newOrderRespType" -> "RESULT"
+                "newOrderRespType" -> "RESULT",
+                "workingType"      -> "MARK_PRICE"
               )
             )
         }
@@ -526,7 +528,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                 )
                 .send(backend)
             logger.info(s"send order response: ${lres.body}")
-            val orderRes = lres.body.fromJsonMust[Vector[OrderResponse]]
+            val orderRes  = lres.body.fromJsonMust[Vector[OrderResponse]]
             logger.info("sl tp order response: " + orderRes.toJson)
         }
     }
