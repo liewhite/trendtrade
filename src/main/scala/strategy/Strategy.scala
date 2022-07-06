@@ -202,7 +202,7 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
         val b = data(1)
         if (b.j < b.d && b.k < b.d && a.j >= a.d && a.k >= a.d) {
             1
-        } else if (b.j < b.d && b.k < b.d && a.j >= a.d && a.k >= a.d) {
+        } else if (b.j > b.d && b.k > b.d && a.j <= a.d && a.k <= a.d) {
             -1
         } else {
             0

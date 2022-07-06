@@ -171,7 +171,9 @@ class KdjStrategy(
                       s"触发开仓: ${symbol}, price: ${k.close} ma: ${ma.data(1).value},${ma.data(0).value} kdj: ${kdj
                               .data(1)}, ${kdj.data(1)} macd: ${macd.data(1).bar},${macd.data(0).bar}"
                     )
-                    open(kdjDir, k.close - (az * 1) * kdjDir, k.close + (az * 2) * kdjDir)
+                    open(kdjDir, k.close - (az * 1.5) * kdjDir, k.close + (az * 3) * kdjDir)
+                    // 每个周期只尝试一次
+                    currentPosition = Some(null)
                 }
             }
         }

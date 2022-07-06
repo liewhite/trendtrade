@@ -41,6 +41,23 @@ enum MarginType   {
     case ISOLATED
     case CROSSED
 }
+case class OpenOrder(
+    symbol:   String,
+    `type`:   String,
+    quantity: String,
+    side:     TradeSide
+)
+
+case class StopOrder(
+    symbol:      String,
+    `type`:      String,
+    quantity:    String,
+    side:        TradeSide,
+    stopPrice:   String,
+    timeInForce: String,
+    reduceOnly:  String
+)
+
 case class BalanceResponse(
     asset:            String,
     balance:          String,
@@ -111,8 +128,8 @@ case class SymbolMetaResponse(
 )
 
 case class SymbolMeta(
-    symbol:   String,
-    stepSize: BigDecimal,
+    symbol:    String,
+    stepSize:  BigDecimal,
     priceStep: BigDecimal
 )
 case class TradeResponse(
@@ -152,7 +169,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                 symbolMetas = res.symbols
                     .filter(_.contractType == "PERPETUAL")
                     .map(item => {
-                        val stepSize = BigDecimal(
+                        val stepSize  = BigDecimal(
                           item.filters
                               .filter(_.filterType == "MARKET_LOT_SIZE")(0)
                               .stepSize
@@ -190,7 +207,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                 symbolMetas = res.symbols
                     .filter(_.contractType == "PERPETUAL")
                     .map(item => {
-                        val stepSize = BigDecimal(
+                        val stepSize  = BigDecimal(
                           item.filters
                               .filter(_.filterType == "MARKET_LOT_SIZE")(0)
                               .stepSize
@@ -234,7 +251,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                   // 记录心跳时间
                   heartBeat.update(symbol, LocalDateTime.now)
                   // logger.info(s"market info: ${res}")
-                //   logger.info(s"${symbol}: ${res.k}")
+                  //   logger.info(s"${symbol}: ${res.k}")
                   klineCallback(
                     Kline(
                       LocalDateTime.ofInstant(
@@ -432,98 +449,85 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
         tp: Option[BigDecimal] = None,
         close: Boolean = false
     ): Unit = {
-        val orderUrl = uri"${binanceHttpBaseUrl}/fapi/v1/order"
         if (!readySymbol.contains(symbol)) {
             prepareSymbol(symbol)
         }
 
-        var req =
-            uri"${orderUrl}?symbol=${symbol}&side=${side.toString}&type=MARKET&quantity=${quantity.abs}&reduceOnly=${close}"
+        val order = Map(
+          "symbol"           -> symbol,
+          "type"             -> "MARKET",
+          "quantity"         -> quantity.toString(),
+          "side"             -> side.toString,
+          "newOrderRespType" -> "RESULT"
+        )
 
-        val signedReq = signReq(req)
-        logger.info(s"send order: ${signedReq}")
-        val lres      = quickRequest
-            .post(signedReq)
+        val batchOrderUrl = uri"${binanceHttpBaseUrl}/fapi/v1/batchOrders"
+        val signedOpenOrder = signReq(uri"${batchOrderUrl}?batchOrders=${Vector(order).toJson}")
+        logger.info(s"send order: ${signedOpenOrder}")
+        val lres            = quickRequest
+            .post(signedOpenOrder)
             .header(
               "X-MBX-APIKEY",
               apiKey
             )
             .send(backend)
         logger.info(s"send order response: ${lres.body}")
-        val orderRes  = lres.body.fromJsonMust[OrderResponse]
-        orders.addOne(orderRes.orderId, false)
-
-        var maxTry = 25
-        while (orders.get(orderRes.orderId).isEmpty && maxTry > 0) {
+        val orderRes        = lres.body.fromJsonMust[Vector[OrderResponse]]
+        orders.addOne(orderRes(0).orderId, false)
+        var maxTry          = 25
+        while (orders.get(orderRes(0).orderId).isEmpty && maxTry > 0) {
             Thread.sleep(200)
             maxTry -= 1
         }
-        orders.remove(orderRes.orderId)
-        if (maxTry > 0) {
-            orderRes.orderId
-        } else {
+        orders.remove(orderRes(0).orderId)
+        if (maxTry > 0) {} else {
             throw Exception("timeout")
         }
-        val stopSide = if(side == TradeSide.BUY) TradeSide.SELL else TradeSide.BUY
-        if (sl.nonEmpty) {
-            var req =
-                uri"${orderUrl}?symbol=${symbol}&side=${stopSide.toString}&closePosition=true&type=STOP_MARKET"
-            req = req.addParam("stopPrice", sl.get.toString)
 
-            val signedReq = signReq(req)
-            logger.info(s"send sl order: ${signedReq}")
-            val lres      = quickRequest
-                .post(signedReq)
-                .header(
-                  "X-MBX-APIKEY",
-                  apiKey
-                )
-                .send(backend)
-            logger.info(s"send sl order response: ${lres.body}")
-            val orderRes  = lres.body.fromJsonMust[OrderResponse]
-            orders.addOne(orderRes.orderId, false)
-
-            var maxTry = 25
-            while (orders.get(orderRes.orderId).isEmpty && maxTry > 0) {
-                Thread.sleep(200)
-                maxTry -= 1
-            }
-            orders.remove(orderRes.orderId)
-            if (maxTry > 0) {
-            } else {
-                throw Exception("timeout")
-            }
-        }
-
-        // 止盈单
+        var batchOrders   = Vector.empty[Map[String, String]]
+        val stopSide      = if (side == TradeSide.BUY) TradeSide.SELL else TradeSide.BUY
         if (tp.nonEmpty) {
-            val s   = if (side == TradeSide.BUY) TradeSide.SELL else TradeSide.BUY
-            var req =
-                uri"${orderUrl}?symbol=${symbol}&side=${stopSide.toString}&closePosition=true&type=TAKE_PROFIT_MARKET"
-            req = req.addParam("stopPrice", tp.get.toString)
+            batchOrders = batchOrders.appended(
+              Map(
+                "symbol"           -> symbol,
+                "type"             -> "TAKE_PROFIT_MARKET",
+                "side"             -> stopSide.toString(),
+                "closePosition"    -> "true",
+                "stopPrice"        -> tp.get.toString,
+                "timeInForce"      -> "GTE_GTC",
+                "newOrderRespType" -> "RESULT"
+              )
+            )
+        }
+        if (sl.nonEmpty) {
+            batchOrders = batchOrders.appended(
+              Map(
+                "symbol"           -> symbol,
+                "type"             -> "STOP_MARKET",
+                "side"             -> stopSide.toString(),
+                "closePosition"    -> "true",
+                "stopPrice"        -> sl.get.toString,
+                "timeInForce"      -> "GTE_GTC",
+                "newOrderRespType" -> "RESULT"
+              )
+            )
+        }
+        if (batchOrders.nonEmpty) {
+            val paramsJson = batchOrders.toJson
+            var req        = uri"${batchOrderUrl}?batchOrders=${paramsJson}"
 
             val signedReq = signReq(req)
-            logger.info(s"send tp order: ${signedReq}")
-            val lres      = quickRequest
+            logger.info(s"send order: ${signedReq}")
+            val slTpRes   = quickRequest
                 .post(signedReq)
                 .header(
                   "X-MBX-APIKEY",
                   apiKey
                 )
                 .send(backend)
-            logger.info(s"send tp order response: ${lres.body}")
-            val orderRes  = lres.body.fromJsonMust[OrderResponse]
-            orders.addOne(orderRes.orderId, false)
-
-            var maxTry = 25
-            while (orders.get(orderRes.orderId).isEmpty && maxTry > 0) {
-                Thread.sleep(200)
-                maxTry -= 1
-            }
-            orders.remove(orderRes.orderId)
-            if (maxTry > 0) {} else {
-                throw Exception("timeout")
-            }
+            logger.info(s"send order response: ${lres.body}")
+            val orderRes = lres.body.fromJsonMust[Vector[OrderResponse]]
+            logger.info("sl tp order response: " + orderRes.toJson)
         }
     }
 

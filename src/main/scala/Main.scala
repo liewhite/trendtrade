@@ -39,12 +39,7 @@ def start() = {
     ) {}
     binanceApi.start()
     logger.info("get all busd symbols")
-    // binanceApi.sendOrder("BTCBUSD", TradeSide.BUY, 0.001, Some(10000), Some(20000))
-    // val symbols      = binanceApi
-    //     .allSymbol()
-    //     .filter(_.symbol.endsWith("BUSD"))
-    //     .filter(!_.symbol.contains("DODO"))
-    //     .map(_.symbol)
+    // binanceApi.sendOrder("BTCBUSD", TradeSide.BUY, 0.001, Some(30000), Some(10000))
     val interval     = cfg.interval
     val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith(cfg.quoteSymbol))
     // val symbols = Vector("BTCBUSD")
