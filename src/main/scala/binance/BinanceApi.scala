@@ -458,7 +458,8 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
           "type"             -> "MARKET",
           "quantity"         -> quantity.toString(),
           "side"             -> side.toString,
-          "newOrderRespType" -> "RESULT"
+          "newOrderRespType" -> "RESULT",
+          "reduceOnly"       -> close.toString()
         )
 
         val batchOrderUrl   = uri"${binanceHttpBaseUrl}/fapi/v1/batchOrders"

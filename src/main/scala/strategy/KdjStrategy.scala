@@ -76,7 +76,7 @@ class KdjStrategy(
         val k           = klines.data(0)
         val price       = k.close
         // 按精度取近似值
-        val rawQuantity = ((balances._1 * 0.3) / price * trader.leverage)
+        val rawQuantity = ((balances._1 * 0.1) / price * trader.leverage)
         val quantity    = formatQuantity(rawQuantity)
         val side        = if (direction == 1) TradeSide.BUY else TradeSide.SELL
         val msg         = s"触发开仓 ${symbol}, ${side} ${quantity}, k: ${k}"
@@ -145,6 +145,10 @@ class KdjStrategy(
         if (klines.data.length < 20) {
             return
         }
+        if(!k.end) {
+            return
+        }
+
         // 无持仓才开仓
         if (currentPosition.isEmpty) {
             // logger.info(s"${symbol} ${kdj.data(0).k} ${kdj.data(0).d} ${kdj.data(0).j}")
@@ -171,7 +175,7 @@ class KdjStrategy(
                       s"触发开仓: ${symbol}, price: ${k.close} ma: ${ma.data(1).value},${ma.data(0).value} kdj: ${kdj
                               .data(1)}, ${kdj.data(1)} macd: ${macd.data(1).bar},${macd.data(0).bar}"
                     )
-                    open(kdjDir, k.close - (az * 1.5) * kdjDir, k.close + (az * 3) * kdjDir)
+                    open(kdjDir, k.close - (az * 1.25) * kdjDir, k.close + (az * 2.5) * kdjDir)
                     // 每个周期只尝试一次
                     currentPosition = Some(null)
                 }

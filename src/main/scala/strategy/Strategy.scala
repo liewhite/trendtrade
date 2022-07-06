@@ -82,6 +82,9 @@ class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
             None
         }
     }
+    def maDirection = {
+        (data(0).value - data(1).value).signum
+    }
 }
 
 case class Macd(
@@ -133,6 +136,9 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
 
     def macdDirection: Int = {
         (data(0).bar - data(1).bar).signum
+    }
+    def deaDirection: Int = {
+        (data(0).dea - data(1).dea).signum
     }
 }
 
@@ -197,6 +203,7 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
         }
     }
 
+    // kdj 收敛至少两个周期
     def kdjDirection: Int = {
         val a = data(0)
         val b = data(1)
