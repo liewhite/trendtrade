@@ -38,61 +38,23 @@ def start() = {
     ) {}
     binanceApi.start()
     logger.info("get all busd symbols")
-    val symbols      = binanceApi
-        .allSymbol()
-        .filter(_.symbol.endsWith("BUSD"))
-        .filter(!_.symbol.contains("DODO"))
-        .map(_.symbol)
+    // binanceApi.sendOrder("BTCBUSD", TradeSide.BUY, 0.001, Some(10000), Some(20000))
+    // val symbols      = binanceApi
+    //     .allSymbol()
+    //     .filter(_.symbol.endsWith("BUSD"))
+    //     .filter(!_.symbol.contains("DODO"))
+    //     .map(_.symbol)
     val interval     = cfg.interval
+    val symbols = Vector("BTCBUSD")
     logger.info("create strategies for symbols")
     val strategies   = symbols.map(s => {
-        val bot = MaBack2Strategy(s, interval, binanceApi, notifyBot, exceptionBot)
+        val bot = KdjStrategy(s, interval, binanceApi, notifyBot, exceptionBot)
         bot.start()
         bot
     })
 }
 
 @main def main: Unit = {
-    backtest()
-    // start()
-}
-
-def backtest() = {
-    val cfg        = loadConfig[AppConfig]("config.yaml")
-    val binanceApi = new BinanceApi(
-      cfg.apiKey,
-      cfg.apiSecret,
-      5,
-      null
-    ) {}
-    val symbols    = binanceApi.allSymbol().filter(_.symbol.endsWith("BUSD")).map(_.symbol)
-    // val symbols = Vector("BTCBUSD")
-    val total      = symbols
-        .map(item => {
-            val ks15 = data.getSymbolK(item, "5m")
-            if (ks15.isEmpty) {
-                0
-            } else {
-                val bot    = MaBackTest2(20)
-                ks15.foreach(k => {
-                    bot.tick(k)
-                })
-                val profit = bot.closed
-                    .map(item =>
-                        (item.closeAt.get - item.openAt) * item.direction - item.openAt * 0.00036 - item.closeAt.get * 0.00036
-                    )
-                    .sum
-                val fee    =
-                    bot.closed.map(item => item.openAt * 0.00036 + item.closeAt.get * 0.00036).sum
-
-                println(
-                  s"${item} tx count: ${bot.closed.length} ,fee: ${fee} profit: ${profit} precent: ${(profit / bot.klines(0).close * 100).intValue}%"
-                )
-                (profit / bot.klines(0).close * 100).intValue
-
-            }
-        })
-        .sum
-    println("total profit: " + total)
-
+    // backtest()
+    start()
 }

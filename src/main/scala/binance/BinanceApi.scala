@@ -221,6 +221,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
                   // 记录心跳时间
                   heartBeat.update(symbol, LocalDateTime.now)
                   // logger.info(s"market info: ${res}")
+                //   logger.info(s"${symbol}: ${res.k}")
                   klineCallback(
                     Kline(
                       LocalDateTime.ofInstant(
@@ -260,7 +261,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
     def getHistory(symbol: String, interval: String): Vector[Kline] = {
         val response = quickRequest
             .get(
-              uri"${binanceHttpBaseUrl}/fapi/v1/continuousKlines?pair=${symbol}&contractType=PERPETUAL&interval=${interval}"
+              uri"${binanceHttpBaseUrl}/fapi/v1/continuousKlines?limit=1500&pair=${symbol}&contractType=PERPETUAL&interval=${interval}"
             )
             .header(
               "X-MBX-APIKEY",
@@ -414,14 +415,16 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
         symbol: String,
         side: TradeSide,
         quantity: BigDecimal,
+        sl: Option[BigDecimal] = None,
+        tp: Option[BigDecimal] = None,
         close: Boolean = false
-    ): Long = {
+    ): Unit = {
         val orderUrl = uri"${binanceHttpBaseUrl}/fapi/v1/order"
         if (!readySymbol.contains(symbol)) {
             prepareSymbol(symbol)
         }
 
-        val req =
+        var req =
             uri"${orderUrl}?symbol=${symbol}&side=${side.toString}&type=MARKET&quantity=${quantity.abs}&reduceOnly=${close}"
 
         val signedReq = signReq(req)
@@ -447,6 +450,67 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             orderRes.orderId
         } else {
             throw Exception("timeout")
+        }
+        val stopSide = if(side == TradeSide.BUY) TradeSide.SELL else TradeSide.BUY
+        if (sl.nonEmpty) {
+            var req =
+                uri"${orderUrl}?symbol=${symbol}&side=${stopSide.toString}&closePosition=true&type=STOP_MARKET"
+            req = req.addParam("stopPrice", sl.get.toString)
+
+            val signedReq = signReq(req)
+            logger.info(s"send sl order: ${signedReq}")
+            val lres      = quickRequest
+                .post(signedReq)
+                .header(
+                  "X-MBX-APIKEY",
+                  apiKey
+                )
+                .send(backend)
+            logger.info(s"send sl order response: ${lres.body}")
+            val orderRes  = lres.body.fromJsonMust[OrderResponse]
+            orders.addOne(orderRes.orderId, false)
+
+            var maxTry = 25
+            while (orders.get(orderRes.orderId).isEmpty && maxTry > 0) {
+                Thread.sleep(200)
+                maxTry -= 1
+            }
+            orders.remove(orderRes.orderId)
+            if (maxTry > 0) {
+            } else {
+                throw Exception("timeout")
+            }
+        }
+
+        // 止盈单
+        if (tp.nonEmpty) {
+            val s   = if (side == TradeSide.BUY) TradeSide.SELL else TradeSide.BUY
+            var req =
+                uri"${orderUrl}?symbol=${symbol}&side=${stopSide.toString}&closePosition=true&type=TAKE_PROFIT_MARKET"
+            req = req.addParam("stopPrice", tp.get.toString)
+
+            val signedReq = signReq(req)
+            logger.info(s"send tp order: ${signedReq}")
+            val lres      = quickRequest
+                .post(signedReq)
+                .header(
+                  "X-MBX-APIKEY",
+                  apiKey
+                )
+                .send(backend)
+            logger.info(s"send tp order response: ${lres.body}")
+            val orderRes  = lres.body.fromJsonMust[OrderResponse]
+            orders.addOne(orderRes.orderId, false)
+
+            var maxTry = 25
+            while (orders.get(orderRes.orderId).isEmpty && maxTry > 0) {
+                Thread.sleep(200)
+                maxTry -= 1
+            }
+            orders.remove(orderRes.orderId)
+            if (maxTry > 0) {} else {
+                throw Exception("timeout")
+            }
         }
     }
 

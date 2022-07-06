@@ -16,12 +16,17 @@ import notifier.Notify
 // kdj叉， macd顺势， 价格处于均线劣势方且大于平均波动的5倍
 // 以tick为准
 // 止盈4倍波动值， 止损2倍
-class KdjStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: Notify,exceptionNotify: Notify)
-    extends BaseStrategy
-    with KlineMixin
-    with MacdMixin()
-    with KdjMixin()
-    with MaMixin(Vector(20)) {
+class KdjStrategy(
+    symbol:          String,
+    interval:        String,
+    trader:          BinanceApi,
+    ntf:             Notify,
+    exceptionNotify: Notify
+) {
+    val klines = KlineMetric()
+    val ma     = MaMetric(klines, 20)
+    val macd   = MacdMetric(klines)
+    val kdj    = KdjMetric(klines)
 
     val logger                            = Logger("strategy")
     var currentPosition: Option[Position] = None
@@ -30,7 +35,6 @@ class KdjStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: Not
     // 加载历史K线
     def start() = {
         loadHistory()
-        // loadPosition()
         // 开始websocket
         trader.subscribeKlines(symbol, interval, k => tick(k))
     }
@@ -43,162 +47,13 @@ class KdjStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: Not
         // 去掉第一条
         history.dropRight(1).foreach(tick(_, true))
         logger.info(
-          s"load history of ${symbol} , last kline: ${klines(0)} ma: ${mas(20)(0)}"
+          s"load history of ${symbol} , last kline: ${klines.data(0)} ma: ${ma.data(0)}"
         )
-    }
-
-    // 必须先load历史K线才能加载持仓
-    def loadPosition(): Unit = {
-        logger.info(s"load positions of ${symbol}")
-        // 获取持仓,过滤出symbol
-        val positions    = trader.getPositions(symbol)
-        if (positions.length == 0) {
-            return
-        }
-        if (positions.length > 1) {
-            throw Exception("positions > 1, strategy only support one position")
-        }
-        // 获取当前价格， 计算止损价
-        val currentPrice = trader.getSymbolPrice(symbol)
-        // 获取开仓时间， 拿到low，high
-        val trades       = trader.getTrades(symbol)
-        // 没有查询到成交记录， 哪来的持仓， 应该不会发生
-        if (trades.isEmpty) {
-            return
-        }
-        val lastTrade    = trades.last
-        val tradeTime    = LocalDateTime.ofInstant(
-          Instant.ofEpochMilli(lastTrade.time),
-          ZoneId.systemDefault
-        )
-        logger.info(s"${symbol} 开仓时间: ${tradeTime}")
-        val p            = positions(0)
-        // 遍历k线， 找到小于开仓时间 + interval 的那一条
-        val tradeK       = klines.find(item =>
-            !item.datetime.isAfter(tradeTime.minus(Duration.parse("PT" + interval)))
-        )
-        // 找到K线则使用正确的止损， 找不到则开仓价止损
-        val sl           = tradeK match {
-            case None    => {
-                logger.info(s"找不到开仓k线, 使用成本价止损, ${p}")
-                p.entryPrice
-            }
-            case Some(k) => {
-                val v = if (p.positionAmt.signum == 1) k.low else k.high
-                logger.info(s"找到开仓k线 ${k}, 设置止损 ${v} ${p}")
-                v
-            }
-        }
-
-        // 加入持仓
-        val direction = p.positionAmt.signum
-        currentPosition = Some(
-          Position(
-            p.positionAmt.abs,
-            LocalDateTime.now,
-            direction,
-            p.entryPrice,
-            None,
-            None,
-            Some(sl),
-            None
-          )
-        )
-        modifyStopLoss()
-    }
-
-    // 根据盈亏设置止盈止损线
-    // 盈利超过10根K线平均值的1倍，则止损拉到成本线
-    // 盈利超过10根K线平均值的10倍，则80%浮动止盈
-    def modifyStopLoss(): Unit = {
-        if (currentPosition.isEmpty) {
-            return
-        }
-        val k  = klines(0)
-        val ks = klines.slice(0, 10)
-
-        val avgFluctuate =
-            ks.map(item => (item.close - item.open).abs).sum / ks.length
-
-        currentPosition = currentPosition.map(p => {
-            // 跟踪止损
-            // 跟当前止损位做比较， 只能前移， 不能退后
-            val sl = if ((k.close - p.openAt) * p.direction > 10 * avgFluctuate) {
-                k.close - (k.close - p.openAt) * 0.2
-            } else if ((k.close - p.openAt) * p.direction > avgFluctuate) {
-                p.openAt
-            } else {
-                p.stopLoss.get
-            }
-            val newSl = if((sl - p.stopLoss.get) * p.direction > 0) {
-                val msg = s"${symbol} 止损前移: ${sl}"
-                logger.info(msg)
-                ntf.sendNotify(msg)
-                Some(sl)
-            }else{
-                p.stopLoss
-            }
-            p.copy(stopLoss = newSl)
-        })
-    }
-
-    def closeCurrent(): Unit = {
-        val k = klines(0)
-        currentPosition match {
-            case None       =>
-            case Some(item) => {
-                val msg = s"触发平仓:${symbol} ${item} 当前k: ${k}"
-                logger.info(msg)
-                ntf.sendNotify(msg)
-                try {
-                    trader.sendOrder(
-                      symbol,
-                      if (item.direction == 1) then TradeSide.SELL else TradeSide.BUY,
-                      item.quantity,
-                      true
-                    )
-                    val msg = s"平仓成功: ${symbol} ${item} 当前k: ${k}"
-                    logger.info(msg)
-                    ntf.sendNotify(msg)
-                    closed.prepend(
-                      item.copy(
-                        closeTime = Some(klines(0).datetime),
-                        closeAt = Some(klines(0).close)
-                      )
-                    )
-                } catch {
-                    case e: TimeoutException => {
-                        val msg = s"挂单未成交， 请手动取消或平仓, ${symbol} ${k} ${e}"
-                        logger.error(msg)
-                        exceptionNotify.sendNotify(msg)
-                    }
-                    case e: Exception => {
-                        val msg = s"平仓失败， 请检查账户是否存在不一致 ${symbol} ${k} ${e}"
-                        logger.error(msg)
-                        exceptionNotify.sendNotify(msg)
-                    }
-                }
-                // 无论如何都要删除持仓， 不然容易引起不一致, 币安端可以手动操作平仓
-                currentPosition = None
-            }
-        }
-
-    }
-    // 止盈止损
-    def checkAndClose(): Unit = {
-        val k = klines(0)
-        currentPosition match {
-            case None       =>
-            case Some(item) => {
-                if ((klines(0).close - item.stopLoss.get) * item.direction < 0) {
-                    closeCurrent()
-                }
-            }
-        }
     }
 
     // 发送订单， 等待成交
-    def open(direction: Int, stopLoss: BigDecimal): Unit = {
+    // 止盈止损
+    def open(direction: Int, stopLoss: BigDecimal, tp: BigDecimal): Unit = {
         if (currentPosition.nonEmpty) {
             return
         }
@@ -211,10 +66,10 @@ class KdjStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: Not
             ntf.sendNotify(msg)
             return
         }
-        val k           = klines(0)
+        val k           = klines.data(0)
         val price       = k.close
         // 按精度取近似值
-        val rawQuantity = ((balances._1 * 0.1) / price * trader.leverage)
+        val rawQuantity = ((balances._1 * 0.3) / price * trader.leverage)
         val quantity    =
             BigDecimal((rawQuantity / symbolMeta.stepSize).intValue) * symbolMeta.stepSize
         val side        = if (direction == 1) TradeSide.BUY else TradeSide.SELL
@@ -222,8 +77,8 @@ class KdjStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: Not
         logger.info(msg)
         ntf.sendNotify(msg)
         try {
-            trader.sendOrder(symbol, side, quantity)
-            val msg = s"开仓成功 ${symbol}, ${side} ${quantity}, k: ${k}"
+            trader.sendOrder(symbol, side, quantity, Some(stopLoss), Some(tp))
+            val msg = s"开仓成功 ${symbol}, ${side} ${quantity} sl: ${stopLoss} tp: ${tp}"
             logger.info(msg)
             ntf.sendNotify(msg)
             currentPosition = Some(
@@ -252,25 +107,10 @@ class KdjStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: Not
         }
     }
 
-    override def tick(k: Kline, history: Boolean = false): Unit = {
-        super.tick(k)
-        // 忽略历史数据， 只处理实时数据
-        if (history) {
-            return
-        }
-        logger.info(s"kline: ${k} ma: ${mas(20)(0)}")
-        // 历史数据不足， 无法参考
-        if (klines.length < 20) {
-            return
-        }
-        // 先止盈止损
-        checkAndClose()
-        // 然后移动剩余仓位的止损位
-        modifyStopLoss()
-
-        val entitySize = (k.close - k.open).abs
-        val entities   = klines
-            .slice(1, 11)
+    // 除当前K外的最近k线平均大小
+    def avgSize(): BigDecimal = {
+        val entities = klines.data
+            .slice(1, 21)
             .map(item => {
                 if (item.close == item.open) {
                     BigDecimal(0)
@@ -280,46 +120,62 @@ class KdjStrategy(symbol: String, interval: String, trader: BinanceApi, ntf: Not
             })
 
         val avgEntitySize = entities.sum / entities.length
-        // k线实体大于过去一段时间的平均的2倍， 视为趋势开始
-        if (entitySize <= avgEntitySize * 2) {
-            return
-        }
+        avgEntitySize
+    }
 
-        val ma = mas(20)
-        // 无波动，不操作
-        if (klines(0).close == klines(1).close) {
+    def metricTick(k: Kline) = {
+        klines.tick(k)
+        ma.tick(k)
+        macd.tick(k)
+        kdj.tick(k)
+    }
+    def tick(k: Kline, history: Boolean = false): Unit = {
+        metricTick(k)
+        // 忽略历史数据， 只处理实时数据
+        if (history) {
             return
         }
-        if (ma(0) == ma(1)) {
+        // 历史数据不足， 无法参考
+        if (klines.data.length < 20) {
             return
         }
-        // 有持仓， 不加仓
-        if (currentPosition.nonEmpty) {
-            return
-        }
+        // println(macd.data.slice(0,20).map(_.bar).mkString(","))
+        println(kdj.data.slice(0,20).map(_.j).mkString(","))
+        // logger.info(s"$")
+        // 无持仓才开仓
+        if (currentPosition.isEmpty) {
+            // kdj叉， macd顺势， 价格处于均线劣势方且大于平均波动的5倍
+            // 以tick为准
+            // 止盈4倍波动值， 止损2倍
+            val kdjDir  = kdj.kdjDirection
+            val macdDir = macd.macdDirection
+            val maValue = ma.data(0).value
+            // logger.info(s"kdj:${kdj.data(0).k} ${kdj.data(0).d} ${kdj.data(0).j}")
 
-        val maDirection = (ma(0) - ma(1)).signum
-
-        // 开盘价在均线劣势方或者很接近,且涨跌与均线一致
-        if (
-          ((k.open - ma(0)) * maDirection < 0 || (k.open - ma(
-            0
-          )).abs < avgEntitySize) && (k.close - k.open) * maDirection > 0
-        ) {
-            // 已有持仓， 忽略
-            if (currentPosition.nonEmpty && currentPosition.get.direction == maDirection) {
-                return
-            }
-            val sl = if (maDirection == 1) k.low else k.high
-            try {
-                open(maDirection, stopLoss = sl)
-            } catch {
-                case e: Exception => {
-                    val msg = s"开仓失败，请检查账户一致性 ${symbol} ${k.datetime} ${e}"
-                    logger.warn(msg)
-                    exceptionNotify.sendNotify(msg)
+            if (kdjDir != 0) {
+                val az = avgSize()
+                if (
+                  macdDir == kdjDir && (k.close - maValue) * macdDir < 0 && (k.close - maValue).abs > az * 5
+                ) {
+                    val positions = trader.getPositions(symbol)
+                    if (positions.length != 0) {
+                        return
+                    }
+                    // 2倍止损， 4倍止盈
+                    logger.info(
+                      s"触发开仓: ${symbol}, price: ${k.close} ma: ${ma.data(1).value},${ma.data(0).value} kdj: ${kdj
+                              .data(1)}, ${kdj.data(1)} macd: ${macd.data(1).bar},${macd.data(0).bar}"
+                    )
+                    currentPosition = Some(null)
+                    // open(kdjDir, k.close - (az * 2) * kdjDir, k.close + (az * 4) * kdjDir)
                 }
             }
         }
+
+        // k线结束清除开仓记录， 再次出现才能开仓
+        if (k.end) {
+            currentPosition = None
+        }
+
     }
 }

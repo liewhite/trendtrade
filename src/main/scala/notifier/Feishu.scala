@@ -25,9 +25,9 @@ class FeishuNotify(webhook: String) extends Notify {
               )
               .body(msg)
               .send(backend)
-          logger.info(
-            s"send notify ${msg}, result: ${response.code} ${response.body}"
-          )
+          // logger.info(
+          //   s"send notify ${msg}, result: ${response.code} ${response.body}"
+          // )
 
         }catch {
           case e: Exception =>  {

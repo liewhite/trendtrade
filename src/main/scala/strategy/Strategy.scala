@@ -2,16 +2,23 @@ package strategy
 
 import java.time.LocalDateTime
 import scala.collection.mutable
+import cats.instances.int
+
+trait IsEnd {
+    def isEnd: Boolean
+}
 
 case class Kline(
-    datetime:   LocalDateTime,
-    open:       BigDecimal,
-    low:        BigDecimal,
-    high:       BigDecimal,
-    close:      BigDecimal,
-    vol:        BigDecimal,
-    persistent: Boolean = false
-)
+    datetime: LocalDateTime,
+    open:     BigDecimal,
+    low:      BigDecimal,
+    high:     BigDecimal,
+    close:    BigDecimal,
+    vol:      BigDecimal,
+    end:      Boolean = true
+) extends IsEnd {
+    def isEnd: Boolean = end
+}
 
 case class Position(
     quantity:     BigDecimal,
@@ -24,58 +31,56 @@ case class Position(
     targetProfit: Option[BigDecimal] = None
 )
 
-abstract class AStrategy {
-    def queueList[T](l: mutable.ListBuffer[T], length: Int) = {
-        if (l.length > length) {
-            l.dropRightInPlace(l.length - length)
-        }
-    }
+abstract class KBasedMetric[T <: IsEnd] {
+    val data = mutable.ListBuffer.empty[T]
 
-    def tick(k: Kline, history: Boolean = false): Unit
-}
+    def next(k: Kline): Option[T]
 
-class BaseStrategy extends AStrategy {
-    override def tick(k: Kline, history: Boolean = false): Unit = {}
-}
+    def maxLength = 1000
 
-trait KlineMixin extends AStrategy {
-    val klines: mutable.ListBuffer[Kline] = mutable.ListBuffer.empty
-
-    abstract override def tick(k: Kline, history: Boolean = false): Unit = {
-        super.tick(k, history)
-        // 如果没有pending的K线， 直接插入
-        if (klines.isEmpty || klines(0).persistent) {
-            klines.prepend(k)
-        } else {
-            klines(0) = k
-        }
-        queueList(klines, 1000)
-    }
-}
-
-trait MaMixin(intervals: Vector[Int] = Vector(5, 10, 20)) extends AStrategy {
-    KL: KlineMixin =>
-    val mas: mutable.Map[Int, mutable.ListBuffer[BigDecimal]] = mutable.Map.from(
-      intervals
-          .map(i => {
-              (i, mutable.ListBuffer.empty[BigDecimal])
-          })
-    )
-
-    abstract override def tick(k: Kline, history: Boolean = false): Unit = {
-        super.tick(k, history)
-        intervals.foreach(interval => {
-            val ks = klines.slice(0, interval)
-            if (ks.length != 0) {
-                val avg = ks.map(_.close).sum / ks.length
-                if (klines.isEmpty || klines(0).persistent) {
-                    mas(interval).prepend(avg)
+    def tick(k: Kline): Unit = {
+        val n = next(k)
+        n match {
+            case None    =>
+            case Some(v) => {
+                if (data.isEmpty) {
+                    data.prepend(v)
                 } else {
-                    mas(interval)(0) = avg
+                    if (data(0).isEnd) {
+                        data.prepend(v)
+                    } else {
+                        data(0) = v
+                    }
+                }
+                if (data.length > maxLength) {
+                    data.dropRightInPlace(data.length - maxLength)
                 }
             }
-            queueList(mas(interval), 1000)
-        })
+        }
+    }
+}
+
+class KlineMetric extends KBasedMetric[Kline] {
+    def next(k: Kline): Option[Kline] = Some(k)
+}
+
+case class Ma(
+    value: BigDecimal,
+    ifEnd: Boolean
+) extends IsEnd {
+    def isEnd = ifEnd
+}
+
+class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
+    def next(k: Kline): Option[Ma] = {
+        val ks = klines.data.slice(0, interval)
+        // println(ks.map(_.close).mkString(","))
+        if (ks.length != 0) {
+            val v = ks.map(_.close).sum / ks.length
+            Some(Ma(v, k.isEnd))
+        } else {
+            None
+        }
     }
 }
 
@@ -85,38 +90,49 @@ case class Macd(
     ema26:    BigDecimal,
     diff:     BigDecimal,
     dea:      BigDecimal,
-    bar:      BigDecimal
-) {
+    bar:      BigDecimal,
+    end:      Boolean
+) extends IsEnd {
     def next(k: Kline, price: BigDecimal, short: Int, long: Int, mid: Int): Macd = {
         val e12    = ema12 * (short - 1) / (short + 1) + price * 2 / (short + 1)
         val e26    = ema26 * (long - 1) / (long + 1) + price * 2 / (long + 1)
         val newDif = e12 - e26
         val newDea = this.dea * (mid - 1) / (mid + 1) + newDif * 2 / (mid + 1)
         val b      = (newDif - newDea)
-        Macd(k.datetime, e12, e26, newDif, newDea, b)
+        Macd(k.datetime, e12, e26, newDif, newDea, b, k.end)
     }
+
+    def isEnd: Boolean = end
 }
 
-trait MacdMixin(fast: Int = 12, slow: Int = 26, mid: Int = 9) extends AStrategy {
-    KL: KlineMixin =>
-    val macd: mutable.ListBuffer[Macd] = mutable.ListBuffer.empty
+class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int = 9)
+    extends KBasedMetric[Macd] {
 
-    abstract override def tick(k: Kline, history: Boolean = false): Unit = {
-        super.tick(k, history)
-        if (klines.length == 1) {
-            if (klines.isEmpty || klines(0).persistent) {
-                macd.prepend(Macd(k.datetime, k.close, k.close, 0, 0, 0))
-            } else {
-                macd(0) = Macd(k.datetime, k.close, k.close, 0, 0, 0)
-            }
+    def next(k: Kline): Option[Macd] = {
+        // 如果只有一根K线，则直接生成MACD
+        // 否则根据最新K线和上一根确定的macd 生成新的macd
+        val v = if (data.isEmpty) {
+            Macd(k.datetime, k.close, k.close, 0, 0, 0, k.end)
         } else {
-            if (klines.isEmpty || klines(0).persistent) {
-                macd.prepend(macd(0).next(k, k.close, fast, slow, mid))
+            if (data.length == 1) {
+                if (data(0).isEnd) {
+                    data(0).next(k, k.close, fast, slow, mid)
+                } else {
+                    Macd(k.datetime, k.close, k.close, 0, 0, 0, k.end)
+                }
             } else {
-                macd(0) = macd(0).next(k, k.close, fast, slow, mid)
+                if (data(0).isEnd) {
+                    data(0).next(k, k.close, fast, slow, mid)
+                } else {
+                    data(1).next(k, k.close, fast, slow, mid)
+                }
             }
         }
-        queueList(macd, 1000)
+        Some(v)
+    }
+
+    def macdDirection: Int = {
+        (data(0).bar - data(1).bar).signum
     }
 }
 
@@ -125,39 +141,71 @@ case class Kdj(
     rsv:   BigDecimal,
     k:     BigDecimal,
     d:     BigDecimal,
-    j:     BigDecimal
-)
+    j:     BigDecimal,
+    end:   Boolean
+) extends IsEnd {
+    def isEnd: Boolean = end
+}
 
-trait KdjMixin(arg1: Int = 9, arg2: Int = 3, arg3: Int = 3) extends AStrategy {
-    KL: KlineMixin =>
-    val kdj: mutable.ListBuffer[Kdj] = mutable.ListBuffer.empty
+class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3)
+    extends KBasedMetric[Kdj] {
 
-    abstract override def tick(k: Kline, history: Boolean = false): Unit = {
-        super.tick(k, history)
-        if (klines.length < 10) {
-            return
-        }
-        val low9  = klines.slice(0, 9).map(_.low).min
-        val high9 = klines.slice(0, 9).map(_.high).max
-        val rsv   = (klines(0).close - low9) / (high9 - low9) * 100
+    def genNext(preKdj: Kdj) = {
+        val low9   = klines.data.slice(0, 9).map(_.low).min
+        val high9  = klines.data.slice(0, 9).map(_.high).max
+        val rsv    = (klines.data(0).close - low9) / (high9 - low9) * 100
+        val newK   = preKdj.k * 2 / 3 + rsv / 3
+        val newD   = preKdj.d * 2 / 3 + newK / 3
+        val newJ   = 3 * newK - 2 * newD
+        val k = klines.data(0)
+        Kdj(k, rsv, newK, newD, newJ, k.end)
+    }
 
-        val newKdj = if (kdj.isEmpty) {
-            val newK = 50 * 2 / 3 + rsv / 3
-            val newD = 50 * 2 / 3 + newK / 3
-            val newJ = 3 * newK - 2 * newD
-            Kdj(k, rsv, newK, newD, newJ)
+    def first() = {
+        val k     = klines.data(0)
+        val low9  = klines.data.slice(0, 9).map(_.low).min
+        val high9 = klines.data.slice(0, 9).map(_.high).max
+        val rsv   = (klines.data(0).close - low9) / (high9 - low9) * 100
+        val newK  = 50 * 2 / 3 + rsv / 3
+        val newD  = 50 * 2 / 3 + newK / 3
+        val newJ  = 3 * newK - 2 * newD
+        Kdj(k, rsv, newK, newD, newJ, k.end)
+    }
+
+    def next(k: Kline): Option[Kdj] = {
+        if (klines.data.length < 10) {
+            None
         } else {
-            val preKdj = kdj(0)
-            val newK   = preKdj.k * 2 / 3 + rsv / 3
-            val newD   = preKdj.d * 2 / 3 + newK / 3
-            val newJ   = 3 * newK - 2 * newD
-            Kdj(k, rsv, newK, newD, newJ)
+            val v = if (data.isEmpty) {
+                first()
+            } else {
+                if (data.length == 1) {
+                    if (data(0).isEnd) {
+                        genNext(data(0))
+                    } else {
+                        first()
+                    }
+                } else {
+                    if (data(0).isEnd) {
+                        genNext(data(0))
+                    } else {
+                        genNext(data(1))
+                    }
+                }
+            }
+            Some(v)
         }
-        if (klines.isEmpty || klines(0).persistent) {
-            kdj.prepend(newKdj)
+    }
+
+    def kdjDirection: Int = {
+        val a = data(0)
+        val b = data(1)
+        if (b.j < b.d && b.k < b.d && a.j >= a.d && a.k >= a.d) {
+            1
+        } else if (b.j < b.d && b.k < b.d && a.j >= a.d && a.k >= a.d) {
+            -1
         } else {
-            kdj(0) = newKdj
+            0
         }
-        queueList(kdj, 1000)
     }
 }
