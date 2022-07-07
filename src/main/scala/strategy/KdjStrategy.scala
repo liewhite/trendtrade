@@ -13,6 +13,7 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 
+// 以收盘价开仓, tick止盈止损
 // kdj叉， macd顺势， 价格处于均线劣势方且大于平均波动的5倍
 // 以tick为准
 // 止盈2倍波动值， 止损1倍

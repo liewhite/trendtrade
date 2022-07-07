@@ -13,8 +13,10 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 
-// ma5,20 macd macd-dea =4 共振开仓， < 3平仓
-class MultipleMetricStrategy(
+// 均线顺势
+// tick 从劣势侧冲到优势测开仓
+// 收盘回撤过均线平仓
+class MaStrategy(
     symbol:          String,
     interval:        String,
     trader:          BinanceApi,
@@ -22,10 +24,7 @@ class MultipleMetricStrategy(
     exceptionNotify: Notify
 ) {
     val klines = KlineMetric()
-    val ma5    = MaMetric(klines, 5)
-    val ma10    = MaMetric(klines, 10)
     val ma20   = MaMetric(klines, 20)
-    val macd   = MacdMetric(klines)
 
     val logger                            = Logger("strategy")
     var currentPosition: Option[Position] = None
@@ -191,29 +190,11 @@ class MultipleMetricStrategy(
 
     def metricTick(k: Kline) = {
         klines.tick(k)
-        ma5.tick(k)
-        ma10.tick(k)
         ma20.tick(k)
-        macd.tick(k)
     }
 
-    def avgSize(): BigDecimal = {
-        val entities = klines.data
-            .slice(1, 21)
-            .map(item => {
-                if (item.close == item.open) {
-                    BigDecimal(0)
-                } else {
-                    (item.close - item.open).abs
-                }
-            })
-
-        val avgEntitySize = entities.sum / entities.length
-        avgEntitySize
-    }
-    // 只有上一tick不满足条件， 该tick满足条件才会开仓
-    // 意思是只做趋势启动， 错过了就不会去追
-    var lastState: Option[Int] = None
+    // 上一tick价位处于均线的哪侧
+    var lastDirection: Option[Int] = None
 
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
@@ -225,38 +206,34 @@ class MultipleMetricStrategy(
         if (klines.data.length < 20) {
             return
         }
-        val macdDir       = macd.macdDirection
-        val deaDir        = macd.deaDirection
-        val ma5Direction  = ma5.maDirection
-        val ma10Direction  = ma10.maDirection
-        val ma20Direction = ma20.maDirection
-        val d = if (Vector(macdDir, deaDir, ma5Direction, ma10Direction, ma20Direction).forall(_ == 1)) {
-            1
-        } else if (Vector(macdDir, deaDir, ma5Direction, ma10Direction, ma20Direction).forall(_ == -1)) {
-            -1
+
+        // 当前价位处于均线哪侧
+        val currentDirection = (k.close - ma20.data(0).value).signum
+        // k线结束判断是否需要平仓
+        if (currentPosition.nonEmpty) {
+            if (k.end) {
+                if ((k.close - ma20.data(0).value) * currentPosition.get.direction <= 0) {
+                    closeCurrent()
+                }
+            }
         } else {
-            0
-        }
-        if (currentPosition.isEmpty && lastState.nonEmpty) {
-            // 有方向， 上个tick跟当前方向不一致， 偏离均线不超过3倍平均波幅
-            if (d != 0 && lastState.get != d && (k.close - ma20.data(0).value) * d < avgSize() * 3) {
-                open(d)
+            // 上个tick信息存在 && 和当前tick处于均线两侧 && 当前侧顺势
+            if (
+              lastDirection.nonEmpty &&
+              lastDirection.get != currentDirection &&
+              currentDirection == ma20.maDirection &&
+              ma20.maDirection != 0
+            ) {
+                open(currentDirection)
             }
-        } else if(currentPosition.nonEmpty) {
-            // 检查是否清仓
-            val d = currentPosition.get.direction
-            if (Vector(macdDir, deaDir, ma5Direction,ma10Direction, ma20Direction).count(_ == d) < 4) {
-                closeCurrent()
-            }
-        }else{
         }
         // 记录上一tick的状态
-        lastState = Some(d)
+        lastDirection = Some(currentDirection)
     }
 
     def tick(k: Kline, history: Boolean = false): Unit = {
         this.synchronized {
-            doTick(k,history)
+            doTick(k, history)
         }
     }
 }
