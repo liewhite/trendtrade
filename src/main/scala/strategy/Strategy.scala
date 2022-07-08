@@ -96,7 +96,7 @@ case class Macd(
     bar:      BigDecimal,
     end:      Boolean
 ) extends IsEnd {
-    def next(k: Kline, price: BigDecimal, short: Int, long: Int, mid: Int): Macd = {
+    def next(k: Kline, price: BigDecimal, short: Int = 12 , long: Int = 26, mid: Int = 9): Macd = {
         val e12    = ema12 * (short - 1) / (short + 1) + price * 2 / (short + 1)
         val e26    = ema26 * (long - 1) / (long + 1) + price * 2 / (long + 1)
         val newDif = e12 - e26
@@ -214,5 +214,9 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
         } else {
             0
         }
+    }
+
+    def dDirection: Int = {
+        (data(0).d - data(1).d).signum
     }
 }

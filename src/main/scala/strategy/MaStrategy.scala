@@ -25,6 +25,7 @@ class MaStrategy(
 ) {
     val klines = KlineMetric()
     val ma20   = MaMetric(klines, 20)
+    val macd   = MacdMetric(klines)
 
     val logger                            = Logger("strategy")
     var currentPosition: Option[Position] = None
@@ -191,6 +192,7 @@ class MaStrategy(
     def metricTick(k: Kline) = {
         klines.tick(k)
         ma20.tick(k)
+        macd.tick(k)
     }
 
     // 除当前K外的最近k线平均大小
@@ -225,46 +227,51 @@ class MaStrategy(
 
         // 当前价位处于均线哪侧
         val currentDirection = (k.close - ma20.data(0).value).signum
-        val maDirection      = ma20.maDirection
+        // macd方向
+        val macdDirection    = macd.macdDirection
 
-
-        // k线结束判断是否需要平仓
+        // 检查是否需要平仓
         if (currentPosition.nonEmpty) {
-            // 仓位和均线方向一致， 则只卖在收盘跌破均线
-            // 极端波动时均线必然调头
-            if (currentPosition.get.direction == maDirection) {
+            // macd 还未反转， 收盘跌破均线平仓
+            if (currentPosition.get.direction == macdDirection) {
                 if (k.end) {
                     if ((k.close - ma20.data(0).value) * currentPosition.get.direction <= 0) {
                         closeCurrent()
                     }
                 }
             } else {
-                // 均线已调头， 则破均线就卖
+                // macd已调头， 则tick破均线就平仓
                 if ((k.close - ma20.data(0).value) * currentPosition.get.direction <= 0) {
                     closeCurrent()
-                    // 不能反手， 因为可能离均线已经比较远了。
+                    // 不能反手， 因为可能跌破后过了一阵macd反转，此时离均线已经比较远了。
                     // open(maDirection)
                 }
             }
-        } else {
-            // 上个tick信息存在 && 和当前tick处于均线两侧 && 当前侧顺势
-            if (
-              lastDirection.nonEmpty &&
-              lastDirection.get != currentDirection &&
-              currentDirection == ma20.maDirection &&
-              ma20.maDirection != 0
-            ) {
-                val as = avgSize()
-                // 往上一个tick， 往下一个tick就会导致均线来回调头的情况一定要排除掉, 会造成巨大的震荡亏损
-                // 给价格加一个负偏移量， 如果均线就拐头了， 则不要开仓, 防来回震荡
-                val negMa = ma20.data(0).value - currentDirection * as  * 0.3 / 20
-                val negMaDirection = (negMa - ma20.data(1).value).signum
-                // 加上负偏移了方向还不变， 才是开仓时机
-                if(negMaDirection == currentDirection) {
-                    open(currentDirection)
-                }else {
-                    logger.info(s"震荡时期不开仓: ${symbol}, avgSize: ${as} preMa: ${ma20.data(1).value} ma:${ma20.data(0).value}, negMa: ${negMa}")
-                }
+        }
+        // 平仓后,再判断是否需要反手开仓
+        // 上个tick信息存在 && 和当前tick处于均线两侧 && 当前侧顺势
+        // 开盘价必须在劣势侧
+        if (
+          currentPosition.isEmpty && // 无持仓
+          lastDirection.nonEmpty && 
+          lastDirection.get != currentDirection &&
+          currentDirection == macdDirection &&
+          macdDirection != 0 &&
+          (k.open - ma20.data(0).value).signum == lastDirection.get // 开盘价在劣势侧
+        ) {
+            val as = avgSize()
+
+            // 往上一个tick， 往下一个tick就会导致macd来回调头的情况一定要排除掉, 会造成巨大的震荡亏损
+            // 给价格加一个负偏移量，重新生成一遍macd, 如果拐头了， 则不要开仓, 防来回震荡
+            val negMacd          = macd.data(1).next(k, k.close - currentDirection * as * 0.5)
+            val negMacdDirection = (negMacd.bar - macd.data(1).bar).signum
+            // 加上负偏移了方向还不变， 才是开仓时机
+            if (negMacdDirection == currentDirection) {
+                open(currentDirection)
+            } else {
+                logger.info(
+                  s"震荡时期不开仓: ${symbol}, avgSize: ${as} preMacd: ${macd.data(1).bar} macd:${macd.data(0).bar}, negMa: ${negMacd.bar}"
+                )
             }
         }
         // 记录上一tick的状态

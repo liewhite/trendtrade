@@ -45,7 +45,7 @@ def start() = {
     val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith(cfg.quoteSymbol))
     logger.info("create strategies for symbols")
     val strategies   = symbols.map(s => {
-        val bot = MaStrategy(s.symbol, interval, binanceApi, notifyBot, exceptionBot)
+        val bot = MultipleMetricStrategy(s.symbol, interval, binanceApi, notifyBot, exceptionBot)
         bot.start()
         bot
     })
