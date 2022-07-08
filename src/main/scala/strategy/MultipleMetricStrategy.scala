@@ -195,7 +195,7 @@ class MultipleMetricStrategy(
         kdj.tick(k)
     }
 
-    def avgSize(): BigDecimal  = {
+    def avgSize(): BigDecimal = {
         val entities = klines.data
             .slice(1, 21)
             .map(item => {
@@ -237,12 +237,49 @@ class MultipleMetricStrategy(
             0
         }
 
+        val as = avgSize()
+
         if (currentPosition.isEmpty && lastState.nonEmpty) {
             // 有方向， 上个tick跟当前方向不一致， 偏离均线不超过2倍平均波幅
-            if (
-              d != 0 && lastState.get != d && (k.close - ma10.data(0).value) * d < avgSize() * 2
-            ) {
-                open(d)
+            if (d != 0 && lastState.get != d && (k.close - ma10.data(0).value) * d < as * 1.5) {
+                // 防抖动， 小价格区间内 指标符合数量在 2，4之间来回抖动
+                val negPrice = k.close - d * as * 1
+                val negKdj   = kdj.genNext(
+                  kdj.data(1),
+                  Some(klines.data.slice(1, 9).toSeq.prepended(k.copy(close = negPrice)))
+                )
+                val negMacd  = macd.data(1).next(k, negPrice)
+
+                val negMacdDirection = (negMacd.bar - macd.data(1).bar).signum
+                val negDeaDirection  = (negMacd.dea - macd.data(1).dea).signum
+                val negMa            = ma10.data(0).value - d * as * 1 / 10
+                val negMaDirection   = (negMa - ma10.data(1).value).signum
+                val negDDiretion     = (negKdj.d - kdj.data(1).d).signum
+
+                if (
+                  Vector(
+                    negMacdDirection,
+                    negMaDirection,
+                    negDeaDirection,
+                    negDDiretion
+                  ).count(_ == d) >= 3
+                ) {
+                    open(d)
+                } else {
+                    logger.info(s"""${symbol} 防抖动触发: 
+                                   |price: ${k.close} negPrice= ${negPrice}
+                                   |preMa10: ${ma10
+                                      .data(1)
+                                      .value} ma10: ${ma10.data(0).value} negMa10: ${negMa}
+                                   |preDea: ${macd
+                                      .data(1)
+                                      .dea} dea: ${macd.data(0).dea} megDea: ${negMacd.dea}
+                                   |preMacd: ${macd.data(1).bar} dea: ${macd
+                                      .data(0)
+                                      .bar} megDea: ${negMacd.bar}
+                                   |preD: ${kdj.data(1).d} dea: ${kdj.data(0).d} megDea: ${negKdj.d}
+                                   |""".stripMargin)
+                }
             }
         } else if (currentPosition.nonEmpty) {
             // 检查是否清仓

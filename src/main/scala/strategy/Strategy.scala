@@ -156,14 +156,23 @@ case class Kdj(
 class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3)
     extends KBasedMetric[Kdj] {
 
-    def genNext(preKdj: Kdj) = {
-        val low9   = klines.data.slice(0, 9).map(_.low).min
-        val high9  = klines.data.slice(0, 9).map(_.high).max
-        val rsv    = (klines.data(0).close - low9) / (high9 - low9) * 100
+    def genNext(preKdj: Kdj, ks: Option[Seq[Kline]] = None) = {
+        val kls = ks match {
+            case Some(o) => o
+            case None => klines.data.slice(0, 9)
+        }
+        val headK = ks match {
+            case Some(o) => o.head
+            case None => klines.data(0)
+        }
+
+        val low9   = kls.map(_.low).min
+        val high9  = kls.map(_.high).max
+        val rsv    = (headK.close - low9) / (high9 - low9) * 100
         val newK   = preKdj.k * 2 / 3 + rsv / 3
         val newD   = preKdj.d * 2 / 3 + newK / 3
         val newJ   = 3 * newK - 2 * newD
-        val k = klines.data(0)
+        val k = headK
         Kdj(k, rsv, newK, newD, newJ, k.end)
     }
 
