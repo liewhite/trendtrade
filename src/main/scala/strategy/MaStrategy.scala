@@ -193,6 +193,22 @@ class MaStrategy(
         ma20.tick(k)
     }
 
+    // 除当前K外的最近k线平均大小
+    def avgSize(): BigDecimal = {
+        val entities = klines.data
+            .slice(1, 21)
+            .map(item => {
+                if (item.close == item.open) {
+                    BigDecimal(0)
+                } else {
+                    (item.close - item.open).abs
+                }
+            })
+
+        val avgEntitySize = entities.sum / entities.length
+        avgEntitySize
+    }
+
     // 上一tick价位处于均线的哪侧
     var lastDirection: Option[Int] = None
 
@@ -209,11 +225,25 @@ class MaStrategy(
 
         // 当前价位处于均线哪侧
         val currentDirection = (k.close - ma20.data(0).value).signum
+        val maDirection      = ma20.maDirection
+
+
         // k线结束判断是否需要平仓
         if (currentPosition.nonEmpty) {
-            if (k.end) {
+            // 仓位和均线方向一致， 则只卖在收盘跌破均线
+            // 极端波动时均线必然调头
+            if (currentPosition.get.direction == maDirection) {
+                if (k.end) {
+                    if ((k.close - ma20.data(0).value) * currentPosition.get.direction <= 0) {
+                        closeCurrent()
+                    }
+                }
+            } else {
+                // 均线已调头， 则破均线就卖
                 if ((k.close - ma20.data(0).value) * currentPosition.get.direction <= 0) {
                     closeCurrent()
+                    // 不能反手， 因为可能离均线已经比较远了。
+                    // open(maDirection)
                 }
             }
         } else {
@@ -224,7 +254,17 @@ class MaStrategy(
               currentDirection == ma20.maDirection &&
               ma20.maDirection != 0
             ) {
-                open(currentDirection)
+                val as = avgSize()
+                // 往上一个tick， 往下一个tick就会导致均线来回调头的情况一定要排除掉, 会造成巨大的震荡亏损
+                // 给价格加一个负偏移量， 如果均线就拐头了， 则不要开仓, 防来回震荡
+                val negMa = ma20.data(0).value - currentDirection * as  * 0.3 / 20
+                val negMaDirection = (negMa - ma20.data(1).value).signum
+                // 加上负偏移了方向还不变， 才是开仓时机
+                if(negMaDirection == currentDirection) {
+                    open(currentDirection)
+                }else {
+                    logger.info(s"震荡时期不开仓: ${symbol}, avgSize: ${as} preMa: ${ma20.data(1).value} ma:${ma20.data(0).value}, negMa: ${negMa}")
+                }
             }
         }
         // 记录上一tick的状态

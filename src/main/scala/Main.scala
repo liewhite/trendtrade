@@ -14,6 +14,7 @@ import com.typesafe.scalalogging.Logger
 case class AppConfig(
     interval:         String,
     quoteSymbol:      String,
+    leverage:         Int,
     apiKey:           String,
     apiSecret:        String,
     notifyWebhook:    String,
@@ -34,7 +35,7 @@ def start() = {
     val binanceApi   = new BinanceApi(
       cfg.apiKey,
       cfg.apiSecret,
-      5,
+      cfg.leverage,
       heartBeatBot
     ) {}
     binanceApi.start()
