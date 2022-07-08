@@ -198,10 +198,10 @@ class MaStrategy(
         val entities = klines.data
             .slice(1, 21)
             .map(item => {
-                if (item.close == item.open) {
+                if (item.high == item.low) {
                     BigDecimal(0)
                 } else {
-                    (item.close - item.open).abs
+                    (item.high - item.low).abs
                 }
             })
 
