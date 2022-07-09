@@ -487,6 +487,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
 
         var batchOrders = Vector.empty[Map[String, String]]
         val stopSide    = if (side == TradeSide.BUY) TradeSide.SELL else TradeSide.BUY
+        // 应该挂LIMIT单
         if (tp.nonEmpty) {
             batchOrders = batchOrders.appended(
               Map(

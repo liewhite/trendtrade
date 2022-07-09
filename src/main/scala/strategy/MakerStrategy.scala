@@ -13,10 +13,12 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 
-// 均线顺势
-// tick 从劣势侧冲到优势测开仓
-// 收盘回撤过均线平仓
-class MaStrategy(
+
+// 还是均线策略比较靠谱， 只需要过滤掉振荡期的频繁止损。
+// ma10, ma5 变为同向， 且价格在ma20 劣势侧。
+// 价格跌破所有均线止损
+// 价格跌破
+class MakerStrategy(
     symbol:          String,
     interval:        String,
     trader:          BinanceApi,
@@ -24,7 +26,7 @@ class MaStrategy(
     exceptionNotify: Notify
 ) {
     val klines = KlineMetric()
-    val ma30   = MaMetric(klines, 30)
+    val ma20   = MaMetric(klines, 20)
     val macd   = MacdMetric(klines)
 
     val logger                            = Logger("strategy")
@@ -74,7 +76,7 @@ class MaStrategy(
         // 去掉第一条
         history.dropRight(1).foreach(tick(_, true))
         logger.info(
-          s"load history of ${symbol} , last kline: ${klines.data(0)} ma20: ${ma30.data(0)}"
+          s"load history of ${symbol} , last kline: ${klines.data(0)} ma20: ${ma20.data(0)}"
         )
     }
 
@@ -191,7 +193,7 @@ class MaStrategy(
 
     def metricTick(k: Kline) = {
         klines.tick(k)
-        ma30.tick(k)
+        ma20.tick(k)
         macd.tick(k)
     }
 
@@ -211,6 +213,9 @@ class MaStrategy(
         avgEntitySize
     }
 
+    // 上一tick价位处于均线的哪侧
+    var lastDirection: Option[Int] = None
+
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
@@ -223,38 +228,57 @@ class MaStrategy(
         }
 
         // 当前价位处于均线哪侧
-        val maDirection = ma30.maDirection
+        val currentDirection = (k.close - ma20.data(0).value).signum
+        // macd方向
+        val maDirection      = ma20.maDirection
 
         // 检查是否需要平仓
         if (currentPosition.nonEmpty) {
             // ma 还未反转， 收盘跌破均线平仓
             if (currentPosition.get.direction == maDirection) {
                 if (k.end) {
-                    if ((k.close - ma30.data(0).value) * currentPosition.get.direction <= 0) {
+                    if ((k.close - ma20.data(0).value) * currentPosition.get.direction <= 0) {
                         closeCurrent()
                     }
                 }
             } else {
                 // macd已调头， 则tick破均线就平仓
-                if ((k.close - ma30.data(0).value) * currentPosition.get.direction <= 0) {
+                if ((k.close - ma20.data(0).value) * currentPosition.get.direction <= 0) {
                     closeCurrent()
                     // 不能反手， 因为可能跌破后过了一阵ma反转，此时离均线已经比较远了。
                     // open(maDirection)
                 }
             }
         }
-        val as = avgSize()
         // 平仓后,再判断是否需要反手开仓
+        // 上个tick信息存在 && 和当前tick处于均线两侧 && 当前侧顺势
+        // 开盘价必须在劣势侧
         if (
-          currentPosition.isEmpty &&                                  // 无持仓
-          maDirection != 0 &&                                         // 均线有方向
-          ma30.historyMaDirection(0) == ma30.historyMaDirection(1) && // 均线有趋势
-          ma30.historyMaDirection(1) == ma30.historyMaDirection(2) &&
-          ma30.historyMaDirection(2) == ma30.historyMaDirection(3) &&
-          k.close - ma30.data(0).value < as * 0.1                     // 离均线比较近
+          currentPosition.isEmpty &&                                // 无持仓
+          lastDirection.nonEmpty &&
+          lastDirection.get != currentDirection &&
+          currentDirection == maDirection &&
+          maDirection != 0 &&
+          (k.open - ma20.data(0).value).signum == lastDirection.get // 开盘价在劣势侧
         ) {
-            open(maDirection)
+            // 
+            val as = avgSize()
+
+            // 往上一个tick， 往下一个tick就会导致macd来回调头的情况一定要排除掉, 会造成巨大的震荡亏损
+            // 给价格加一个负偏移量，重新生成一遍macd, 如果拐头了， 则不要开仓, 防来回震荡
+            val negMacd          = macd.data(1).next(k, k.close - currentDirection * as * 0.5)
+            val negMacdDirection = (negMacd.bar - macd.data(1).bar).signum
+            // 加上负偏移了方向还不变， 才是开仓时机
+            if (negMacdDirection == currentDirection) {
+                open(currentDirection)
+            } else {
+                logger.info(
+                  s"震荡时期不开仓: ${symbol}, avgSize: ${as} preMacd: ${macd.data(1).bar} macd:${macd.data(0).bar}, negMa: ${negMacd.bar}"
+                )
+            }
         }
+        // 记录上一tick的状态
+        lastDirection = Some(currentDirection)
     }
 
     def tick(k: Kline, history: Boolean = false): Unit = {

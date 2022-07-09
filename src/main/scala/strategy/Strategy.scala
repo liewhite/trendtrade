@@ -18,6 +18,7 @@ case class Kline(
     end:      Boolean = true
 ) extends IsEnd {
     def isEnd: Boolean = end
+    def direction: Int = (close - open).signum
 }
 
 case class Position(
@@ -85,6 +86,9 @@ class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
     def maDirection = {
         (data(0).value - data(1).value).signum
     }
+    def historyMaDirection(offset: Int): Int = {
+        (data(offset).value - data(offset + 1).value).signum
+    }
 }
 
 case class Macd(
@@ -135,8 +139,15 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
     }
 
     def macdDirection: Int = {
-        (data(0).bar - data(1).bar).signum
+        if((data(0).bar - data(1).bar).signum == 1 && data(1).bar < 0) {
+            1
+        }else if((data(0).bar - data(1).bar).signum == -1 && data(1).bar > 0) {
+            -1
+        }else {
+            0
+        }
     }
+
     def deaDirection: Int = {
         (data(0).dea - data(1).dea).signum
     }

@@ -26,7 +26,7 @@ class KdjStrategy(
 ) {
     val klines = KlineMetric()
     val ma     = MaMetric(klines, 20)
-    val macd   = MacdMetric(klines)
+    val macd     = MacdMetric(klines)
     val kdj    = KdjMetric(klines)
 
     val logger                            = Logger("strategy")
@@ -55,7 +55,7 @@ class KdjStrategy(
     def formatQuantity(n: BigDecimal): BigDecimal = {
         BigDecimal((n / symbolMeta.stepSize).intValue) * symbolMeta.stepSize
     }
-    def formatPrice(n: BigDecimal): BigDecimal = {
+    def formatPrice(n: BigDecimal): BigDecimal    = {
         BigDecimal((n / symbolMeta.priceStep).intValue) * symbolMeta.priceStep
     }
 
@@ -67,7 +67,7 @@ class KdjStrategy(
         }
         // 查询账户总额， 余额, 如果余额小于总额的10%()， 放弃开仓
         val balances    = trader.getTotalBalance()
-        if (balances._2 * 10 < balances._1) {
+        if (balances._2 < balances._1 * 0.2) {
             // NOTE: 做好合约账户被爆90%的准备,千万不能入金太多, 最多放可投资金的1/4, 这样被爆了还有机会翻
             val msg = s"余额不足10%, 停止开仓 ${balances._2}/${balances._1}"
             logger.warn(msg)
@@ -77,14 +77,20 @@ class KdjStrategy(
         val k           = klines.data(0)
         val price       = k.close
         // 按精度取近似值
-        val rawQuantity = ((balances._1 * 0.1) / price * trader.leverage)
+        val rawQuantity = ((balances._1 * 0.2) / price * trader.leverage)
         val quantity    = formatQuantity(rawQuantity)
         val side        = if (direction == 1) TradeSide.BUY else TradeSide.SELL
         val msg         = s"触发开仓 ${symbol}, ${side} ${quantity}, k: ${k}"
         logger.info(msg)
         ntf.sendNotify(msg)
         try {
-            trader.sendOrder(symbol, side, quantity, Some(formatPrice(stopLoss)), Some(formatPrice(tp)))
+            trader.sendOrder(
+              symbol,
+              side,
+              quantity,
+              Some(formatPrice(stopLoss)),
+              Some(formatPrice(tp))
+            )
             val msg = s"开仓成功 ${symbol}, ${side} ${quantity} sl: ${stopLoss} tp: ${tp}"
             logger.info(msg)
             ntf.sendNotify(msg)
@@ -119,10 +125,10 @@ class KdjStrategy(
         val entities = klines.data
             .slice(1, 21)
             .map(item => {
-                if (item.close == item.open) {
+                if (item.high == item.low) {
                     BigDecimal(0)
                 } else {
-                    (item.close - item.open).abs
+                    (item.high - item.low).abs
                 }
             })
 
@@ -130,12 +136,13 @@ class KdjStrategy(
         avgEntitySize
     }
 
-    def metricTick(k: Kline)                           = {
+    def metricTick(k: Kline) = {
         klines.tick(k)
         ma.tick(k)
         macd.tick(k)
         kdj.tick(k)
     }
+
     def tick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
@@ -146,22 +153,28 @@ class KdjStrategy(
         if (klines.data.length < 20) {
             return
         }
-        if(!k.end) {
+        if (!k.end) {
             return
         }
 
         // 无持仓才开仓
         if (currentPosition.isEmpty) {
             // logger.info(s"${symbol} ${kdj.data(0).k} ${kdj.data(0).d} ${kdj.data(0).j}")
-            // kdj叉， macd顺势， 价格处于均线劣势方且大于平均波动的5倍
-            // 以tick为准
-            // 止盈4倍波动值， 止损2倍
-            val kdjDir  = kdj.kdjDirection
+            // kdj叉， macd顺势
+            val kdj0 = kdj.data(0)
+            val kdj1 = kdj.data(1)
+            // kdj方向, 金叉死叉，或者收敛方向
+            val kdjDir = if (kdj1.j > 80 && kdj1.j > kdj1.d && kdj1.j > kdj0.j) {
+                -1
+            } else if (kdj1.j < 20 && kdj1.j < kdj1.d && kdj1.j < kdj0.j) {
+                1
+            } else {
+                0
+            }
             val macdDir = macd.macdDirection
             val maValue = ma.data(0).value
 
             if (kdjDir != 0) {
-                // logger.info(s"${symbol} kdj ${if(kdjDir > 0) "金叉" else "死叉"}")
                 val az = avgSize()
                 if (
                   macdDir == kdjDir &&
@@ -171,22 +184,14 @@ class KdjStrategy(
                     if (positions.length != 0) {
                         return
                     }
-                    // 1倍止损， 2倍止盈
+                    // 1倍止损， 1倍止盈
                     logger.info(
                       s"触发开仓: ${symbol}, price: ${k.close} ma: ${ma.data(1).value},${ma.data(0).value} kdj: ${kdj
                               .data(1)}, ${kdj.data(1)} macd: ${macd.data(1).bar},${macd.data(0).bar}"
                     )
-                    open(kdjDir, k.close - (az * 1.25) * kdjDir, k.close + (az * 2.5) * kdjDir)
-                    // 每个周期只尝试一次
-                    currentPosition = Some(null)
+                    open(kdjDir, k.close - (az * 1.5) * kdjDir, k.close + (az * 1.5) * kdjDir)
                 }
             }
         }
-
-        // k线结束清除开仓记录， 再次出现才能开仓
-        if (k.end) {
-            currentPosition = None
-        }
-
     }
 }
