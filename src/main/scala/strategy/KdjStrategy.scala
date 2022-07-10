@@ -20,13 +20,15 @@ import notifier.Notify
 class KdjStrategy(
     symbol:          String,
     interval:        String,
+    maSize:          Int,
+    maxHolds:        Int,
     trader:          BinanceApi,
     ntf:             Notify,
     exceptionNotify: Notify
 ) {
     val klines = KlineMetric()
-    val ma     = MaMetric(klines, 20)
-    val macd     = MacdMetric(klines)
+    val ma     = MaMetric(klines, maSize)
+    val macd   = MacdMetric(klines)
     val kdj    = KdjMetric(klines)
 
     val logger                            = Logger("strategy")
@@ -67,7 +69,7 @@ class KdjStrategy(
         }
         // 查询账户总额， 余额, 如果余额小于总额的10%()， 放弃开仓
         val balances    = trader.getTotalBalance()
-        if (balances._2 < balances._1 * 0.2) {
+        if (balances._2 * maxHolds < balances._1) {
             // NOTE: 做好合约账户被爆90%的准备,千万不能入金太多, 最多放可投资金的1/4, 这样被爆了还有机会翻
             val msg = s"余额不足10%, 停止开仓 ${balances._2}/${balances._1}"
             logger.warn(msg)
@@ -77,7 +79,7 @@ class KdjStrategy(
         val k           = klines.data(0)
         val price       = k.close
         // 按精度取近似值
-        val rawQuantity = ((balances._1 * 0.2) / price * trader.leverage)
+        val rawQuantity = ((balances._1 / maxHolds) / price * trader.leverage)
         val quantity    = formatQuantity(rawQuantity)
         val side        = if (direction == 1) TradeSide.BUY else TradeSide.SELL
         val msg         = s"触发开仓 ${symbol}, ${side} ${quantity}, k: ${k}"
@@ -150,7 +152,7 @@ class KdjStrategy(
             return
         }
         // 历史数据不足， 无法参考
-        if (klines.data.length < 20) {
+        if (klines.data.length < maSize) {
             return
         }
         if (!k.end) {
@@ -161,10 +163,10 @@ class KdjStrategy(
         if (currentPosition.isEmpty) {
             // logger.info(s"${symbol} ${kdj.data(0).k} ${kdj.data(0).d} ${kdj.data(0).j}")
             // kdj叉， macd顺势
-            val kdj0 = kdj.data(0)
-            val kdj1 = kdj.data(1)
+            val kdj0    = kdj.data(0)
+            val kdj1    = kdj.data(1)
             // kdj方向, 金叉死叉，或者收敛方向
-            val kdjDir = if (kdj1.j > 80 && kdj1.j > kdj1.d && kdj1.j > kdj0.j) {
+            val kdjDir  = if (kdj1.j > 80 && kdj1.j > kdj1.d && kdj1.j > kdj0.j) {
                 -1
             } else if (kdj1.j < 20 && kdj1.j < kdj1.d && kdj1.j < kdj0.j) {
                 1

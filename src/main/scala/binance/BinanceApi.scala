@@ -493,17 +493,15 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             batchOrders = batchOrders.appended(
               Map(
                 "symbol"      -> symbol,
-                // "type"        -> "LIMIT",
                 "type"             -> "TAKE_PROFIT",
                 "side"        -> stopSide.toString(),
                 "reduceOnly"  -> "true",
-                // "closePosition"  -> "true",
                 "stopPrice"        -> tp.get.toString,
                 "price"       -> tp.get.toString,
                 "quantity"    -> quantity.toString(),
                 "timeInForce" -> "GTE_GTC",
-                // "newOrderRespType" -> "RESULT",
-                "workingType"      -> "MARK_PRICE"
+                "newOrderRespType" -> "RESULT",
+                "workingType"      -> "CONTRACT_PRICE"
               )
             )
         }

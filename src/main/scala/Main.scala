@@ -40,17 +40,18 @@ def start() = {
       cfg.leverage,
       heartBeatBot
     ) {}
+    // println(binanceApi.getPositions("BTCBUSD"))
     binanceApi.start()
     logger.info("get all busd symbols")
-    // binanceApi.sendOrder("BTCBUSD", TradeSide.BUY, 0.001, Some(10000), Some(30000))
     val interval     = cfg.interval
     val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith(cfg.quoteSymbol))
     logger.info("create strategies for symbols")
     val strategies   = symbols.map(s => {
-        val bot = MaStrategy(s.symbol, interval, cfg.maSize, cfg.maxHolds, binanceApi, notifyBot, exceptionBot)
+        val bot = KdjStrategy(s.symbol, interval, cfg.maSize, cfg.maxHolds, binanceApi, notifyBot, exceptionBot)
         bot.start()
         bot
     })
+    // binanceApi.sendOrder("BTCBUSD", TradeSide.BUY, 0.001, Some(20900), Some(21000))
 }
 
 @main def main: Unit = {
