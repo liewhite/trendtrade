@@ -30,10 +30,9 @@ class KdjStrategy(
     val ma     = MaMetric(klines, maSize)
     val macd   = MacdMetric(klines)
     val kdj    = KdjMetric(klines)
-
     val logger                            = Logger("strategy")
-    var currentPosition: Option[Position] = None
-    val closed                            = mutable.ListBuffer.empty[Position]
+
+    val positionMgr = PositionMgr(symbol, trader, maxHolds, ntf, exceptionNotify)
 
     // 加载历史K线
     def start() = {
@@ -42,7 +41,6 @@ class KdjStrategy(
         trader.subscribeKlines(symbol, interval, k => tick(k))
     }
 
-    def symbolMeta = trader.symbolMeta(symbol)
 
     // 币安是以k线开始时间为准的
     def loadHistory() = {
@@ -52,74 +50,6 @@ class KdjStrategy(
         logger.info(
           s"load history of ${symbol} , last kline: ${klines.data(0)} ma: ${ma.data(0)}"
         )
-    }
-
-    def formatQuantity(n: BigDecimal): BigDecimal = {
-        BigDecimal((n / symbolMeta.stepSize).intValue) * symbolMeta.stepSize
-    }
-    def formatPrice(n: BigDecimal): BigDecimal    = {
-        BigDecimal((n / symbolMeta.priceStep).intValue) * symbolMeta.priceStep
-    }
-
-    // 发送订单， 等待成交
-    // 止盈止损
-    def open(direction: Int, stopLoss: BigDecimal, tp: BigDecimal): Unit = {
-        if (currentPosition.nonEmpty) {
-            return
-        }
-        // 查询账户总额， 余额, 如果余额小于总额的10%()， 放弃开仓
-        val balances    = trader.getTotalBalance()
-        if (balances._2 * maxHolds < balances._1) {
-            // NOTE: 做好合约账户被爆90%的准备,千万不能入金太多, 最多放可投资金的1/4, 这样被爆了还有机会翻
-            val msg = s"余额不足10%, 停止开仓 ${balances._2}/${balances._1}"
-            logger.warn(msg)
-            ntf.sendNotify(msg)
-            return
-        }
-        val k           = klines.data(0)
-        val price       = k.close
-        // 按精度取近似值
-        val rawQuantity = ((balances._1 / maxHolds) / price * trader.leverage)
-        val quantity    = formatQuantity(rawQuantity)
-        val side        = if (direction == 1) TradeSide.BUY else TradeSide.SELL
-        val msg         = s"触发开仓 ${symbol}, ${side} ${quantity}, k: ${k}"
-        logger.info(msg)
-        ntf.sendNotify(msg)
-        try {
-            trader.sendOrder(
-              symbol,
-              side,
-              quantity,
-              Some(formatPrice(stopLoss)),
-              Some(formatPrice(tp))
-            )
-            val msg = s"开仓成功 ${symbol}, ${side} ${quantity} sl: ${stopLoss} tp: ${tp}"
-            logger.info(msg)
-            ntf.sendNotify(msg)
-            currentPosition = Some(
-              Position(
-                quantity,
-                k.datetime,
-                direction,
-                k.close,
-                None,
-                None,
-                Some(stopLoss),
-                None
-              )
-            )
-        } catch {
-            case e: TimeoutException => {
-                val msg = s" ${symbol} 挂单未成交， 请手动取消开仓挂单, ${k}"
-                logger.error(msg)
-                exceptionNotify.sendNotify(msg)
-            }
-            case e: Exception => {
-                val msg = s"${symbol} 开仓失败， 请检查账户是否存在不一致"
-                logger.warn(msg)
-                exceptionNotify.sendNotify(msg)
-            }
-        }
     }
 
     // 除当前K外的最近k线平均大小
@@ -160,7 +90,7 @@ class KdjStrategy(
         }
 
         // 无持仓才开仓
-        if (currentPosition.isEmpty) {
+        if (positionMgr.currentPosition.isEmpty) {
             // logger.info(s"${symbol} ${kdj.data(0).k} ${kdj.data(0).d} ${kdj.data(0).j}")
             // kdj叉， macd顺势
             val kdj0    = kdj.data(0)
@@ -191,7 +121,7 @@ class KdjStrategy(
                       s"触发开仓: ${symbol}, price: ${k.close} ma: ${ma.data(1).value},${ma.data(0).value} kdj: ${kdj
                               .data(1)}, ${kdj.data(1)} macd: ${macd.data(1).bar},${macd.data(0).bar}"
                     )
-                    open(kdjDir, k.close - (az * 1.5) * kdjDir, k.close + (az * 1.5) * kdjDir)
+                    positionMgr.open(k,k.close, kdjDir, Some(k.close - (az * 1.5) * kdjDir), Some(k.close + (az * 1.5) * kdjDir))
                 }
             }
         }

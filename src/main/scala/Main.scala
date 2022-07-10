@@ -28,7 +28,7 @@ val logger  = Logger("main")
 def start() = {
     logger.info("start binance bot...")
     logger.info("load config")
-    val cfg          = loadConfig[AppConfig]("config.yaml")
+    val cfg          = loadConfig[AppConfig]("config1.yaml")
     logger.info("create notify bot")
     val notifyBot    = FeishuNotify(cfg.notifyWebhook)
     val heartBeatBot = FeishuNotify(cfg.heartBeatWebhook)
@@ -43,15 +43,15 @@ def start() = {
     // println(binanceApi.getPositions("BTCBUSD"))
     binanceApi.start()
     logger.info("get all busd symbols")
-    val interval     = cfg.interval
-    val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith(cfg.quoteSymbol))
-    logger.info("create strategies for symbols")
-    val strategies   = symbols.map(s => {
-        val bot = KdjStrategy(s.symbol, interval, cfg.maSize, cfg.maxHolds, binanceApi, notifyBot, exceptionBot)
-        bot.start()
-        bot
-    })
-    // binanceApi.sendOrder("BTCBUSD", TradeSide.BUY, 0.001, Some(20900), Some(21000))
+    // val interval     = cfg.interval
+    // val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith(cfg.quoteSymbol))
+    // logger.info("create strategies for symbols")
+    // val strategies   = symbols.map(s => {
+    //     val bot = KdjStrategy(s.symbol, interval, cfg.maSize, cfg.maxHolds, binanceApi, notifyBot, exceptionBot)
+    //     bot.start()
+    //     bot
+    // })
+    binanceApi.sendOrder("BTCBUSD", TradeSide.BUY, 0.001, Some(20800), Some(21000))
 }
 
 @main def main: Unit = {
