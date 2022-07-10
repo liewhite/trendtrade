@@ -13,8 +13,10 @@ import com.typesafe.scalalogging.Logger
 
 case class AppConfig(
     interval:         String,
+    maSize:           Int,
     quoteSymbol:      String,
     leverage:         Int,
+    maxHolds:         Int,
     apiKey:           String,
     apiSecret:        String,
     notifyWebhook:    String,
@@ -45,7 +47,7 @@ def start() = {
     val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith(cfg.quoteSymbol))
     logger.info("create strategies for symbols")
     val strategies   = symbols.map(s => {
-        val bot = MaStrategy(s.symbol, interval, binanceApi, notifyBot, exceptionBot)
+        val bot = MaStrategy(s.symbol, interval, cfg.maSize, cfg.maxHolds, binanceApi, notifyBot, exceptionBot)
         bot.start()
         bot
     })

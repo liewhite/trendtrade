@@ -329,6 +329,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             )
             .toVector
     }
+
     def getPositions(symbol: String): Vector[PositionFromBinance]   = {
         val infoUrl   = uri"${binanceHttpBaseUrl}/fapi/v2/account"
         // 更改逐仓， 杠杆倍数
@@ -491,17 +492,22 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
         if (tp.nonEmpty) {
             batchOrders = batchOrders.appended(
               Map(
-                "symbol"           -> symbol,
-                "type"             -> "TAKE_PROFIT_MARKET",
-                "side"             -> stopSide.toString(),
-                "closePosition"    -> "true",
+                "symbol"      -> symbol,
+                // "type"        -> "LIMIT",
+                "type"             -> "TAKE_PROFIT",
+                "side"        -> stopSide.toString(),
+                "reduceOnly"  -> "true",
+                // "closePosition"  -> "true",
                 "stopPrice"        -> tp.get.toString,
-                "timeInForce"      -> "GTE_GTC",
-                "newOrderRespType" -> "RESULT",
-                "workingType"      -> "CONTRACT_PRICE"
+                "price"       -> tp.get.toString,
+                "quantity"    -> quantity.toString(),
+                "timeInForce" -> "GTE_GTC",
+                // "newOrderRespType" -> "RESULT",
+                "workingType"      -> "MARK_PRICE"
               )
             )
         }
+
         if (sl.nonEmpty) {
             batchOrders = batchOrders.appended(
               Map(
@@ -521,7 +527,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             var req        = uri"${batchOrderUrl}?batchOrders=${paramsJson}"
 
             val signedReq = signReq(req)
-            logger.info(s"send order: ${signedReq}")
+            logger.info(s"send sl tp order: ${signedReq}")
             val slTpRes   = quickRequest
                 .post(signedReq)
                 .header(

@@ -13,24 +13,25 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 
-// 均线顺势
-// tick 从劣势侧冲到优势测开仓
-// 收盘回撤过均线平仓
+// 均线顺势，价格合理， 且价格处于上涨时开仓
+// 均线调头， 破均线和新低平仓, 避免来回止损
+// 均线未调头，收盘价未站上均线且收阴线平仓
 class MaStrategy(
     symbol:          String,
     interval:        String,
+    maSize:          Int,
+    maxHold:         Int,
     trader:          BinanceApi,
     ntf:             Notify,
     exceptionNotify: Notify
 ) {
     val klines = KlineMetric()
-    val ma30   = MaMetric(klines, 30)
+    val maSeq  = MaMetric(klines, maSize)
     val macd   = MacdMetric(klines)
 
     val logger                            = Logger("strategy")
     var currentPosition: Option[Position] = None
     val closed                            = mutable.ListBuffer.empty[Position]
-    // 是否暂停开仓, 避免频繁调用
 
     // 加载历史K线
     def start() = {
@@ -74,7 +75,7 @@ class MaStrategy(
         // 去掉第一条
         history.dropRight(1).foreach(tick(_, true))
         logger.info(
-          s"load history of ${symbol} , last kline: ${klines.data(0)} ma20: ${ma30.data(0)}"
+          s"load history of ${symbol} , last kline: ${klines.data(0)} ma20: ${maSeq.data(0)}"
         )
     }
 
@@ -137,8 +138,8 @@ class MaStrategy(
         }
         // 查询账户总额， 余额, 如果余额小于总额的10%()， 放弃开仓
         val balances    = trader.getTotalBalance()
-        if (balances._2 < balances._1 * 0.1) {
-            val msg = s"余额不足10%, 停止开仓 ${balances._2}/${balances._1}"
+        if (balances._2  * maxHold < balances._1) {
+            val msg = s"余额不足, 停止开仓 ${balances._2}/${balances._1}"
             logger.warn(msg)
             // ntf.sendNotify(msg)
             return
@@ -146,7 +147,7 @@ class MaStrategy(
         val k           = klines.data(0)
         val price       = k.close
         // 按精度取近似值
-        val rawQuantity = ((balances._1 * 0.1) / price * trader.leverage)
+        val rawQuantity = ((balances._1 / maxHold) / price * trader.leverage)
         val quantity    = formatQuantity(rawQuantity)
         val side        = if (direction == 1) TradeSide.BUY else TradeSide.SELL
         val msg         = s"触发开仓 ${symbol}, ${side} ${quantity}, k: ${k}"
@@ -191,7 +192,7 @@ class MaStrategy(
 
     def metricTick(k: Kline) = {
         klines.tick(k)
-        ma30.tick(k)
+        maSeq.tick(k)
         macd.tick(k)
     }
 
@@ -211,50 +212,60 @@ class MaStrategy(
         avgEntitySize
     }
 
+    // 前一tick信息
+    var lastTick: Kline = null
+
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
-        if (history) {
-            return
-        }
-        // 历史数据不足， 无法参考
-        if (klines.data.length < 20) {
-            return
-        }
+        if (!history && klines.data.length >= 20) {
 
-        // 当前价位处于均线哪侧
-        val maDirection = ma30.maDirection
+            val maDirection = maSeq.maDirection
 
-        // 检查是否需要平仓
-        if (currentPosition.nonEmpty) {
-            // ma 还未反转， 收盘跌破均线平仓
-            if (currentPosition.get.direction == maDirection) {
-                if (k.end) {
-                    if ((k.close - ma30.data(0).value) * currentPosition.get.direction <= 0) {
+            // 开仓看均线方向, 均线向上就突破high开仓， 均线向下就跌破low 开仓
+            val openThreshold = if (maDirection == 1) lastTick.high else lastTick.low
+
+            // 检查是否需要平仓, 同一K线上， 平仓一次， 下次平仓必须要超过该价位了, 不断放大, 限制平仓次数
+            if (currentPosition.nonEmpty) {
+                val positionDirection = currentPosition.get.direction
+                // 平仓看持仓方向， 持有多单则跌破low平仓， 持有空单则
+                val closeThreshold    = if (positionDirection == 1) lastTick.low else lastTick.high
+                // ma 还未反转， 收盘跌破均线平仓
+                if (positionDirection == maDirection) {
+                    if (
+                      k.end &&                                                 // 收盘
+                      (k.close - k.open) * positionDirection < 0 &&            // 逆势K
+                      (k.close - maSeq.data(0).value) * positionDirection <= 0 // 收盘价未站上均线
+                    ) {
+                        closeCurrent()
+                    }
+                } else {
+                    // ma已调头， 则tick破均线且创K新低平仓
+                    if (
+                      (k.close - maSeq.data(0).value) * positionDirection <= 0 &&
+                      (k.close - closeThreshold) * positionDirection < 0
+                    ) {
                         closeCurrent()
                     }
                 }
-            } else {
-                // macd已调头， 则tick破均线就平仓
-                if ((k.close - ma30.data(0).value) * currentPosition.get.direction <= 0) {
-                    closeCurrent()
-                    // 不能反手， 因为可能跌破后过了一阵ma反转，此时离均线已经比较远了。
-                    // open(maDirection)
-                }
+            }
+
+            val as = avgSize()
+
+            // 平仓后,再判断是否需要开仓
+            if (
+              currentPosition.isEmpty &&                                    // 无持仓
+              maDirection != 0 &&                                           // 均线有方向
+              maSeq.historyMaDirection(0) == maSeq.historyMaDirection(1) && // 均线有趋势, 避免连续的震荡K线
+              maSeq.historyMaDirection(1) == maSeq.historyMaDirection(2) &&
+              maSeq.historyMaDirection(2) == maSeq.historyMaDirection(3) &&
+              (k.close - maSeq.data(0).value) * maDirection < as * 0.2 &&   // 不正偏离均线太多
+              (k.close - openThreshold) * maDirection > 0                   // 只在突破当前K线端点时开仓, 避免单K内来回震荡触发开仓
+            ) {
+                open(maDirection)
             }
         }
-        val as = avgSize()
-        // 平仓后,再判断是否需要反手开仓
-        if (
-          currentPosition.isEmpty &&                                  // 无持仓
-          maDirection != 0 &&                                         // 均线有方向
-          ma30.historyMaDirection(0) == ma30.historyMaDirection(1) && // 均线有趋势
-          ma30.historyMaDirection(1) == ma30.historyMaDirection(2) &&
-          ma30.historyMaDirection(2) == ma30.historyMaDirection(3) &&
-          k.close - ma30.data(0).value < as * 0.1                     // 离均线比较近
-        ) {
-            open(maDirection)
-        }
+        lastTick = k
     }
 
     def tick(k: Kline, history: Boolean = false): Unit = {
