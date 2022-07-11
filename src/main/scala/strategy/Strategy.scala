@@ -73,7 +73,7 @@ case class Ma(
 }
 
 class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
-    def next(k: Kline): Option[Ma] = {
+    def next(k: Kline): Option[Ma]           = {
         val ks = klines.data.slice(0, interval)
         // println(ks.map(_.close).mkString(","))
         if (ks.length != 0) {
@@ -83,7 +83,7 @@ class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
             None
         }
     }
-    def maDirection = {
+    def maDirection                          = {
         (data(0).value - data(1).value).signum
     }
     def historyMaDirection(offset: Int): Int = {
@@ -100,7 +100,7 @@ case class Macd(
     bar:      BigDecimal,
     end:      Boolean
 ) extends IsEnd {
-    def next(k: Kline, price: BigDecimal, short: Int = 12 , long: Int = 26, mid: Int = 9): Macd = {
+    def next(k: Kline, price: BigDecimal, short: Int = 12, long: Int = 26, mid: Int = 9): Macd = {
         val e12    = ema12 * (short - 1) / (short + 1) + price * 2 / (short + 1)
         val e26    = ema26 * (long - 1) / (long + 1) + price * 2 / (long + 1)
         val newDif = e12 - e26
@@ -138,12 +138,34 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
         Some(v)
     }
 
-    def macdDirection: Int = {
-        if((data(0).bar - data(1).bar).signum == 1 && data(1).bar < 0) {
+    def macdDirection: Int              = {
+        if ((data(0).bar - data(1).bar).signum == 1 && data(1).bar < 0) {
             1
-        }else if((data(0).bar - data(1).bar).signum == -1 && data(1).bar > 0) {
+        } else if ((data(0).bar - data(1).bar).signum == -1 && data(1).bar > 0) {
             -1
-        }else {
+        } else {
+            0
+        }
+    }
+
+    def macdCross(offset: Int = 0): Int = {
+        if (data(offset).bar > 0 && data(offset + 1).bar < 0) {
+            1
+        } else if (data(offset).bar < 0 && data(offset + 1).bar > 0) {
+            -1
+        } else {
+            0
+        }
+    }
+
+    def macdHistoryDirection(offset: Int = 0): Int = {
+        if ((data(offset).bar - data(offset + 1).bar).signum == 1 && data(offset + 1).bar < 0) {
+            1
+        } else if (
+          (data(offset).bar - data(offset + 1).bar).signum == -1 && data(offset + 1).bar > 0
+        ) {
+            -1
+        } else {
             0
         }
     }
@@ -168,22 +190,22 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
     extends KBasedMetric[Kdj] {
 
     def genNext(preKdj: Kdj, ks: Option[Seq[Kline]] = None) = {
-        val kls = ks match {
+        val kls   = ks match {
             case Some(o) => o
-            case None => klines.data.slice(0, 9)
+            case None    => klines.data.slice(0, 9)
         }
         val headK = ks match {
             case Some(o) => o.head
-            case None => klines.data(0)
+            case None    => klines.data(0)
         }
 
-        val low9   = kls.map(_.low).min
-        val high9  = kls.map(_.high).max
-        val rsv    = (headK.close - low9) / (high9 - low9) * 100
-        val newK   = preKdj.k * 2 / 3 + rsv / 3
-        val newD   = preKdj.d * 2 / 3 + newK / 3
-        val newJ   = 3 * newK - 2 * newD
-        val k = headK
+        val low9  = kls.map(_.low).min
+        val high9 = kls.map(_.high).max
+        val rsv   = (headK.close - low9) / (high9 - low9) * 100
+        val newK  = preKdj.k * 2 / 3 + rsv / 3
+        val newD  = preKdj.d * 2 / 3 + newK / 3
+        val newJ  = 3 * newK - 2 * newD
+        val k     = headK
         Kdj(k, rsv, newK, newD, newJ, k.end)
     }
 

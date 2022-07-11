@@ -16,7 +16,7 @@ import notifier.Notify
 // 以收盘价开仓, tick止盈止损
 // kdj叉， macd顺势， 价格处于均线劣势方且大于平均波动的5倍
 // 以tick为准
-// 止盈2倍波动值， 止损1倍
+// 止盈1倍波动值， 止损1倍
 class KdjStrategy(
     symbol:          String,
     interval:        String,
@@ -30,7 +30,7 @@ class KdjStrategy(
     val ma     = MaMetric(klines, maSize)
     val macd   = MacdMetric(klines)
     val kdj    = KdjMetric(klines)
-    val logger                            = Logger("strategy")
+    val logger = Logger("strategy")
 
     val positionMgr = PositionMgr(symbol, trader, maxHolds, ntf, exceptionNotify)
 
@@ -40,7 +40,6 @@ class KdjStrategy(
         // 开始websocket
         trader.subscribeKlines(symbol, interval, k => tick(k))
     }
-
 
     // 币安是以k线开始时间为准的
     def loadHistory() = {
@@ -110,7 +109,7 @@ class KdjStrategy(
                 val az = avgSize()
                 if (
                   macdDir == kdjDir &&
-                  ((k.close - maValue) * macdDir < 0 || (k.close - maValue).abs < az * 0.2)
+                  ((k.close - maValue) * macdDir < az * 0.2)
                 ) {
                     val positions = trader.getPositions(symbol)
                     if (positions.length != 0) {
@@ -121,7 +120,13 @@ class KdjStrategy(
                       s"触发开仓: ${symbol}, price: ${k.close} ma: ${ma.data(1).value},${ma.data(0).value} kdj: ${kdj
                               .data(1)}, ${kdj.data(1)} macd: ${macd.data(1).bar},${macd.data(0).bar}"
                     )
-                    positionMgr.open(k,k.close, kdjDir, Some(k.close - (az * 1.5) * kdjDir), Some(k.close + (az * 1.5) * kdjDir))
+                    positionMgr.open(
+                      k,
+                      k.close,
+                      kdjDir,
+                      Some(k.close - (az * 1.5) * kdjDir),
+                      Some(k.close + (az * 1.5) * kdjDir)
+                    )
                 }
             }
         }

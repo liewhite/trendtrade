@@ -18,6 +18,11 @@ class PositionMgr(
     val logger = Logger("positionMgr")
 
     var currentPosition: Option[Position] = None
+    def cleanPosition() = {
+        currentPosition = None
+    }
+
+    def hasPosition: Boolean = currentPosition.nonEmpty
 
     def symbolMeta = trader.symbolMeta(symbol)
 
