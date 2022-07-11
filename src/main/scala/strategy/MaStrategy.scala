@@ -101,6 +101,7 @@ class MaStrategy(
                     } else if (
                       // 逆势持仓走势不好要尽快平仓, 不要等等收盘
                       (k.close - k.open) * positionDirection < 0 &&               // 逆势K
+                      (k.open - maSeq.data(0).value) * positionDirection <= 0 &&  // 开盘价在均线劣势侧
                       (k.close - maSeq.data(0).value) * positionDirection <= 0 && // 价格在均线劣势侧
                       (k.close - closeThreshold) * positionDirection < 0       // 破新高新低
                     ) {
