@@ -29,7 +29,7 @@ val logger = Logger("main")
 def loadCfg(): AppConfig = {
     logger.info("start binance bot...")
     logger.info("load config")
-    val cfg = loadConfig[AppConfig]("config1.yaml")
+    val cfg = loadConfig[AppConfig]("config.yaml")
     logger.info("create notify bot")
     cfg
 }
@@ -55,7 +55,7 @@ def start()                 = {
     logger.info("create strategies for symbols")
 
     val strategies   = symbols.map(s => {
-        val bot = MacdStrategy(
+        val bot = MaStrategy(
           s.symbol,
           interval,
           cfg.maSize,

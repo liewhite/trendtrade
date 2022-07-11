@@ -70,9 +70,9 @@ class PositionMgr(
         val balances    = trader.getTotalBalance()
         if (balances._2 * maxHolds < balances._1) {
             // NOTE: 做好合约账户被爆90%的准备,千万不能入金太多, 最多放可投资金的1/4, 这样被爆了还有机会翻
-            val msg = s"余额不足10%, 停止开仓 ${balances._2}/${balances._1}"
+            val msg = s"余额不足10%, 停止开仓 ${symbol} ${balances._2}/${balances._1}"
             logger.warn(msg)
-            ntf.sendNotify(msg)
+            // ntf.sendNotify(msg)
             return
         }
         // 按精度取近似值

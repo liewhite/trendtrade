@@ -100,8 +100,8 @@ class MacdStrategy(
               k,
               k.close,
               direction,
-              Some(k.close - (as * 1.5) * direction),
-              Some(k.close + (as * 1.5) * direction)
+              Some(k.close - (as * 1) * direction),
+              Some(k.close + (as * 1.25) * direction)
             )
         }
 
