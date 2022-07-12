@@ -119,11 +119,11 @@ class PositionMgr(
         }
     }
 
-    def closeCurrent(k: Kline): Unit = {
+    def closeCurrent(k: Kline, reason: String = ""): Unit = {
         currentPosition match {
             case None       =>
             case Some(item) => {
-                val msg = s"触发平仓:${symbol} ${item} 当前k: ${k}"
+                val msg = s"触发平仓:${symbol} 原因: ${reason} ${item} 当前k: ${k}"
                 logger.info(msg)
                 ntf.sendNotify(msg)
                 try {

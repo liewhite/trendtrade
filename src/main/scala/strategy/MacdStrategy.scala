@@ -90,8 +90,8 @@ class MacdStrategy(
           direction != 0 &&                                               // 金叉死叉发生
           (k.close - ma.data(0).value) * direction < 0.2 * as &&          // 价格有成本优势
           Range(1, 6).map(macd.macdCross(_)).forall(item => item == 0) && // 金叉死叉发生前， 反向趋势持续至少5个周期
-          macd.data.slice(0, 8).map(_.bar.abs).max / macd.data
-              .slice(0, 8)
+          macd.data.slice(1, 8).map(_.bar.abs).max / macd.data
+              .slice(1, 8)
               .map(_.bar.abs)
               .min > 4                                                    // macd幅度够大
         ) {
