@@ -108,10 +108,11 @@ class MaStrategy(
                         positionMgr.closeCurrent(k)
                     }
                 } else {
-                    // ma已调头， 则tick破均线且创K新低平仓
+                    // ma已调头， 则tick破均线平仓
+                    // 平仓后不创新高不开仓, 有效过滤临界震荡
                     if (
-                      (k.close - maSeq.data(0).value) * positionDirection <= 0 &&
-                      (k.close - closeThreshold) * positionDirection < 0
+                      (k.close - maSeq.data(0).value) * positionDirection <= 0
+                    //   (k.close - closeThreshold) * positionDirection < 0 // 如果不创新低不平仓， 考虑反弹插针突破均线再回落， 会完整的吃回落的亏损
                     ) {
                         positionMgr.closeCurrent(k)
                     }
