@@ -33,15 +33,15 @@ def loadCfg(): AppConfig = {
     logger.info("create notify bot")
     cfg
 }
-def start()                 = {
-    val cfg          = loadCfg()
+def start()              = {
+    val cfg = loadCfg()
 
     val notifyBot    = FeishuNotify(cfg.notifyWebhook)
     val heartBeatBot = FeishuNotify(cfg.heartBeatWebhook)
     val exceptionBot = FeishuNotify(cfg.exceptionWebhook)
 
     logger.info("init binance api")
-    val binanceApi   = new BinanceApi(
+    val binanceApi = new BinanceApi(
       cfg.apiKey,
       cfg.apiSecret,
       cfg.leverage,
@@ -50,12 +50,12 @@ def start()                 = {
     binanceApi.start()
 
     logger.info("get all busd symbols")
-    val interval     = cfg.interval
-    val symbols      = binanceApi.allSymbol().filter(_.symbol.endsWith(cfg.quoteSymbol))
+    val interval = cfg.interval
+    val symbols  = binanceApi.allSymbol().filter(_.symbol.endsWith(cfg.quoteSymbol))
     logger.info("create strategies for symbols")
 
-    val strategies   = symbols.map(s => {
-        val bot = MaStrategy(
+    val strategies = symbols.map(s => {
+        val bot = MacdStrategy(
           s.symbol,
           interval,
           cfg.maSize,

@@ -245,6 +245,19 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
         }
     }
 
+    // kdj金叉死叉
+    def kdjCrossDirection(offset: Int = 0): Int = {
+        val a = data(offset)
+        val b = data(offset + 1)
+        if(b.j < b.d && a.j >= a.d && b.j < 20) {
+            1
+        }else if(b.j > b.d && a.j <= a.d && b.j > 80) {
+            -1
+        }else{
+            0
+        }
+    }
+
     // kdj 收敛至少两个周期
     def kdjDirection: Int = {
         val a = data(0)

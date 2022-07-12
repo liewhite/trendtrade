@@ -82,14 +82,18 @@ class MacdStrategy(
         val as        = avgSize()
 
         // 当前K线已经开仓过了
-        if(positionMgr.hasPosition) {
+        if (positionMgr.hasPosition) {
             return
         }
 
         if (
-          direction != 0 &&                                            // 金叉死叉发生
-          (k.close - ma.data(0).value) * direction < 0.2 * as &&       // 价格有成本优势
-          Range(1, 6).map(macd.macdCross(_)).forall(item => item == 0) // 金叉死叉发生前， 反向趋势持续至少5个周期
+          direction != 0 &&                                               // 金叉死叉发生
+          (k.close - ma.data(0).value) * direction < 0.2 * as &&          // 价格有成本优势
+          Range(1, 6).map(macd.macdCross(_)).forall(item => item == 0) && // 金叉死叉发生前， 反向趋势持续至少5个周期
+          macd.data.slice(0, 8).map(_.bar.abs).max / macd.data
+              .slice(0, 8)
+              .map(_.bar.abs)
+              .min > 4                                                    // macd幅度够大
         ) {
             // 当前无持仓才开仓
             val positions = trader.getPositions(symbol)
@@ -106,7 +110,7 @@ class MacdStrategy(
         }
 
         // k线结束清理持仓信息， 避免以后不能开仓了
-        if(k.end) {
+        if (k.end) {
             positionMgr.cleanPosition()
         }
     }

@@ -94,14 +94,9 @@ class KdjStrategy(
             // kdj叉， macd顺势
             val kdj0    = kdj.data(0)
             val kdj1    = kdj.data(1)
-            // kdj方向, 金叉死叉，或者收敛方向
-            val kdjDir  = if (kdj1.j > 80 && kdj1.j > kdj1.d && kdj1.j > kdj0.j) {
-                -1
-            } else if (kdj1.j < 20 && kdj1.j < kdj1.d && kdj1.j < kdj0.j) {
-                1
-            } else {
-                0
-            }
+            // kdj方向, 金叉死叉
+            val kdjDir = kdj.kdjCrossDirection()
+
             val macdDir = macd.macdDirection
             val maValue = ma.data(0).value
 
