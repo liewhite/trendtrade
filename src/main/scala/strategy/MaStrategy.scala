@@ -46,7 +46,7 @@ class MaStrategy(
         // 去掉第一条
         history.dropRight(1).foreach(tick(_, true))
         logger.info(
-          s"load history of ${symbol} , last kline: ${klines.data(0)} ma20: ${maSeq.data(0)}"
+          s"load history of ${symbol}"
         )
     }
 
@@ -94,7 +94,7 @@ class MaStrategy(
                 // ma 还未反转
                 if (positionDirection == maDirection) {
                     if (
-                      (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < -0.2 * avgSize() // 亏损
+                      (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < -0.4 * avgSize() // 亏损
                     ) {
                         positionMgr.closeCurrent(k, "亏损0.2倍波动")
                     } else if (
@@ -136,11 +136,15 @@ class MaStrategy(
 
             // 平仓后,再判断是否需要开仓
             if (
-              positionMgr.currentPosition.isEmpty &&                      // 无持仓
-              maDirection != 0 &&                                         // 均线有方向
-              (k.open - maSeq.data(0).value) * maDirection < as * 0.5 &&  // (其实不需要这个条件, 后两个条件包含了该条件), 开盘价不正偏离均线太多(止损在这里)
+              positionMgr.currentPosition.isEmpty &&                    // 无持仓
+              maDirection != 0 &&                                       // 均线有方向
+              maSeq.historyMaDirection(1) == maDirection &&
+              maSeq.historyMaDirection(2) == maSeq.historyMaDirection(1) &&
+            //   maSeq.historyMaDirection(3) == maSeq.historyMaDirection(2) &&
+              //   (k.open - maSeq.data(0).value) * maDirection < as * 0.5 &&  // (其实不需要这个条件, 后两个条件包含了该条件), 开盘价不正偏离均线太多(止损在这里)
               (k.close - maSeq.data(0).value) * maDirection < as * 0.2 && // 现价不正偏离均线太多(成本优势)
-              (k.close - openThreshold) * maDirection > 0                 // 只在突破当前K线端点时开仓, 避免单K内来回震荡触发开仓
+              (k.close - k.open) * maDirection > 0 // 阳线
+            //   (k.close - openThreshold) * maDirection > 0               // 只在突破当前K线端点时开仓, 避免单K内来回震荡触发开仓
             ) {
                 positionMgr.open(k, k.close, maDirection, None, None)
             }
