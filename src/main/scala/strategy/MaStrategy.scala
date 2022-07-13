@@ -82,7 +82,7 @@ class MaStrategy(
 
             val maDirection = maSeq.maDirection
 
-            // 开仓看均线方向, 均线向上就突破high开仓， 均线向下就跌破low 开仓
+            // 开仓看均线方向, 均线向上就突破high开仓
             val openThreshold = if (maDirection == 1) lastTick.high else lastTick.low
 
             // 检查是否需要平仓, 同一K线上， 平仓一次， 下次平仓必须要超过该价位了, 不断放大, 限制平仓次数
@@ -90,31 +90,29 @@ class MaStrategy(
                 val positionDirection = positionMgr.currentPosition.get.direction
                 // 平仓看持仓方向， 持有多单则跌破low平仓， 持有空单则
                 val closeThreshold    = if (positionDirection == 1) lastTick.low else lastTick.high
-                // ma 还未反转， 收盘跌破均线平仓
+
+                // ma 还未反转
                 if (positionDirection == maDirection) {
-                    // 收盘确认跌破， 无论盈亏都要平仓
                     if (
-                      k.end &&                                                 // 收盘
-                      (k.close - k.open) * positionDirection < 0 &&            // 逆势K
-                      (k.close - maSeq.data(0).value) * positionDirection <= 0 // 收盘价未站上均线
+                      (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < -0.2 * avgSize() // 亏损
+                    ) {
+                        positionMgr.closeCurrent(k, "亏损0.2倍波动")
+                    } else if (
+                      // 收盘确认跌破， 无论盈亏都要平仓
+                      k.end &&                                      // 收盘
+                      (k.close - k.open) * positionDirection < 0 && // 逆势K
+                      (k.close - maSeq.data(0).value) * positionDirection <= 0                                  // 收盘价未站上均线
                     ) {
                         positionMgr.closeCurrent(k, "收盘跌破均线")
                     } else if (
-                      // 整个K线处于逆势侧， 且破新低
-                      (k.close - k.open) * positionDirection < 0 &&                              // 逆势K
-                      (k.open - maSeq.data(0).value) * positionDirection <= 0 &&                 // 开盘价在均线劣势侧
-                      (k.close - maSeq.data(0).value) * positionDirection <= 0 &&                // 价格在均线劣势侧
-                      (k.close - closeThreshold) * positionDirection < 0       // 破新高新低
-                    ) {
-                        positionMgr.closeCurrent(k, "开盘收盘价都处于劣势")
-                    } else if (
+                      // 价格处于逆势侧， 且破新低
                       (k.close - k.open) * positionDirection < 0 &&               // 逆势K
-                      (k.open - maSeq.data(0).value) * positionDirection >= 0 &&  // 开盘价在均线优势侧
+                      (k.open - maSeq.data(0).value) * positionDirection <= 0 &&  // 开盘价在均线劣势侧
                       (k.close - maSeq.data(0).value) * positionDirection <= 0 && // 价格在均线劣势侧
-                      (k.close - closeThreshold) * positionDirection < 0 &&       // 破新高新低
-                      (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < 0 // 亏损
+                      (k.close - closeThreshold) * positionDirection < 0 &&       // 破新低, K线边界时很容易出现反复开平仓
+                      (k.close - k.open).abs > avgSize() * 0.1      // 有效K线， 过滤了开盘即平仓的尴尬
                     ) {
-                        positionMgr.closeCurrent(k, "亏损状态跌破均线")
+                        positionMgr.closeCurrent(k, "受均线压制反转")
                     }
                 } else {
                     // ma已调头， 则tick破均线平仓
@@ -140,9 +138,6 @@ class MaStrategy(
             if (
               positionMgr.currentPosition.isEmpty &&                      // 无持仓
               maDirection != 0 &&                                         // 均线有方向
-              //   maSeq.historyMaDirection(0) == maSeq.historyMaDirection(1) && // 均线有趋势, 避免连续的震荡K线
-              //   maSeq.historyMaDirection(1) == maSeq.historyMaDirection(2) &&
-              //   maSeq.historyMaDirection(2) == maSeq.historyMaDirection(3) &&
               (k.open - maSeq.data(0).value) * maDirection < as * 0.5 &&  // (其实不需要这个条件, 后两个条件包含了该条件), 开盘价不正偏离均线太多(止损在这里)
               (k.close - maSeq.data(0).value) * maDirection < as * 0.2 && // 现价不正偏离均线太多(成本优势)
               (k.close - openThreshold) * maDirection > 0                 // 只在突破当前K线端点时开仓, 避免单K内来回震荡触发开仓
