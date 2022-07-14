@@ -73,6 +73,8 @@ class MaStrategy(
         avgEntitySize
     }
 
+    var openTime: LocalDateTime = null
+
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
@@ -89,16 +91,16 @@ class MaStrategy(
                 if ((k.close - k.open) * positionDirection < 0) {
                     // ma 还未反转
                     if (positionDirection == maDirection) {
+                        val preK = klines.data(1)
                         if (
                           ((k.close - maSeq.data(0).value) * positionDirection < 0 &&
-                              k.end) ||                        // 收在劣势侧
-                          ((k.open - maSeq.data(0).value) * positionDirection <= 0 && klines
-                              .data(1)
-                              .close * positionDirection >= 0) // 上一K线收在优势侧， 后一K开在劣势侧
+                              k.end) ||                                                                      // 收在劣势侧
+                          ((k.open - maSeq.data(0).value) * positionDirection <= 0 &&
+                              (preK.close - preK.open) * positionDirection < 0)                              // 上一K线收阴线， 后一K开在劣势侧
                         ) {
                             positionMgr.closeCurrent(k, "劣势侧收阴线")
                         } else if (
-                          (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < -0.8 * as
+                          (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < -1.2 * as // 保证正常波动不会出局
                         ) {
                             // 浮亏强制止损
                             positionMgr.closeCurrent(k, "浮亏止损")
@@ -113,6 +115,10 @@ class MaStrategy(
                 }
             }
 
+            if(openTime != null && Duration.between(openTime, LocalDateTime.now()).getSeconds() < 60) {
+                return
+            }
+
             val as = avgSize()
             if (
               positionMgr.currentPosition.isEmpty &&                      // 无持仓
@@ -124,6 +130,8 @@ class MaStrategy(
               (k.close - k.open) * maDirection > avgSize() * 0.2          // 有效K线， 过滤了开盘即平仓的尴尬
             ) {
                 positionMgr.open(k, k.close, maDirection, None, None)
+                // 休息一分钟
+                openTime = LocalDateTime.now()
             }
         }
     }
