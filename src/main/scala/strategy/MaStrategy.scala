@@ -13,6 +13,7 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 
+// 均线顺势， 价格
 // 均线顺势，价格合理， 且价格处于上涨时开仓
 // 均线调头， 破均线和新低平仓, 避免来回止损
 // 均线未调头，收盘价未站上均线且收阴线平仓
@@ -72,9 +73,6 @@ class MaStrategy(
         avgEntitySize
     }
 
-    // 前一tick信息
-    var lastTick: Kline = null
-
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
@@ -82,74 +80,52 @@ class MaStrategy(
 
             val maDirection = maSeq.maDirection
 
-            // 开仓看均线方向, 均线向上就突破high开仓
-            val openThreshold = if (maDirection == 1) lastTick.high else lastTick.low
-
             // 检查是否需要平仓, 同一K线上， 平仓一次， 下次平仓必须要超过该价位了, 不断放大, 限制平仓次数
             if (positionMgr.currentPosition.nonEmpty) {
+                val as                = avgSize()
                 val positionDirection = positionMgr.currentPosition.get.direction
-                // 平仓看持仓方向， 持有多单则跌破low平仓， 持有空单则
-                val closeThreshold    = if (positionDirection == 1) lastTick.low else lastTick.high
 
-                // ma 还未反转
-                if (positionDirection == maDirection) {
-                    if (
-                      (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < -0.4 * avgSize() // 亏损
-                    ) {
-                        positionMgr.closeCurrent(k, "亏损0.2倍波动")
-                    } else if (
-                      // 收盘确认跌破， 无论盈亏都要平仓
-                      k.end &&                                      // 收盘
-                      (k.close - k.open) * positionDirection < 0 && // 逆势K
-                      (k.close - maSeq.data(0).value) * positionDirection <= 0                                  // 收盘价未站上均线
-                    ) {
-                        positionMgr.closeCurrent(k, "收盘跌破均线")
-                    } else if (
-                      // 价格处于逆势侧， 且破新低
-                      (k.close - k.open) * positionDirection < 0 &&               // 逆势K
-                      (k.open - maSeq.data(0).value) * positionDirection <= 0 &&  // 开盘价在均线劣势侧
-                      (k.close - maSeq.data(0).value) * positionDirection <= 0 && // 价格在均线劣势侧
-                      (k.close - closeThreshold) * positionDirection < 0 &&       // 破新低, K线边界时很容易出现反复开平仓
-                      (k.close - k.open).abs > avgSize() * 0.1      // 有效K线， 过滤了开盘即平仓的尴尬
-                    ) {
-                        positionMgr.closeCurrent(k, "受均线压制反转")
-                    }
-                } else {
-                    // ma已调头， 则tick破均线平仓
-                    // 分两种情况
-                    // 1. 从上往下跌破均线， 直接平仓没毛病
-                    // 2. 从下往上突破再跌破，也应立即平仓, 大不了新高再开仓
-                    // 平仓后不创新高不开仓, 有效过滤临界震荡
-                    if (
-                      (k.close - maSeq.data(0).value) * positionDirection <= 0
-                      //   (k.close - closeThreshold) * positionDirection < 0 // 如果不创新低不平仓， 考虑反弹插针突破均线再回落， 会完整的吃回落的亏损
-                    ) {
-                        positionMgr.closeCurrent(k, "均线调头")
+                // 阴线才考虑平仓
+                if ((k.close - k.open) * positionDirection < 0) {
+                    // ma 还未反转
+                    if (positionDirection == maDirection) {
+                        if (
+                          ((k.close - maSeq.data(0).value) * positionDirection < 0 &&
+                              k.end) ||                        // 收在劣势侧
+                          ((k.open - maSeq.data(0).value) * positionDirection <= 0 && klines
+                              .data(1)
+                              .close * positionDirection >= 0) // 上一K线收在优势侧， 后一K开在劣势侧
+                        ) {
+                            positionMgr.closeCurrent(k, "劣势侧收阴线")
+                        } else if (
+                          (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < -0.8 * as
+                        ) {
+                            // 浮亏强制止损
+                            positionMgr.closeCurrent(k, "浮亏止损")
+                        }
+                    } else {
+                        if (
+                          (k.close - maSeq.data(0).value) * positionDirection <= 0 // 均线调头,价格在劣势侧
+                        ) {
+                            positionMgr.closeCurrent(k, "均线调头")
+                        }
                     }
                 }
             }
 
             val as = avgSize()
-            // 考虑震荡， 只在均线顺势且价格合适的时候开仓
-            // 如果是均线来回调头的震荡， 亏损比较小、
-            // 稍微宽幅的震荡不会亏， 甚至还能赚钱
-
-            // 平仓后,再判断是否需要开仓
             if (
-              positionMgr.currentPosition.isEmpty &&                    // 无持仓
-              maDirection != 0 &&                                       // 均线有方向
+              positionMgr.currentPosition.isEmpty &&                      // 无持仓
+              maDirection != 0 &&                                         // 均线有方向
               maSeq.historyMaDirection(1) == maDirection &&
               maSeq.historyMaDirection(2) == maSeq.historyMaDirection(1) &&
-            //   maSeq.historyMaDirection(3) == maSeq.historyMaDirection(2) &&
-              //   (k.open - maSeq.data(0).value) * maDirection < as * 0.5 &&  // (其实不需要这个条件, 后两个条件包含了该条件), 开盘价不正偏离均线太多(止损在这里)
               (k.close - maSeq.data(0).value) * maDirection < as * 0.2 && // 现价不正偏离均线太多(成本优势)
-              (k.close - k.open) * maDirection > 0 // 阳线
-            //   (k.close - openThreshold) * maDirection > 0               // 只在突破当前K线端点时开仓, 避免单K内来回震荡触发开仓
+              (k.close - k.open) * maDirection > 0 &&                     // 阳线
+              (k.close - k.open) * maDirection > avgSize() * 0.2          // 有效K线， 过滤了开盘即平仓的尴尬
             ) {
                 positionMgr.open(k, k.close, maDirection, None, None)
             }
         }
-        lastTick = k
     }
 
     def tick(k: Kline, history: Boolean = false): Unit = {

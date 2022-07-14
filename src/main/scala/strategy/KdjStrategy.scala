@@ -88,9 +88,10 @@ class KdjStrategy(
             return
         }
 
+        val position = positionMgr.loadPosition()
+
         // 无持仓才开仓
         if (positionMgr.currentPosition.isEmpty) {
-            // logger.info(s"${symbol} ${kdj.data(0).k} ${kdj.data(0).d} ${kdj.data(0).j}")
             // kdj叉， macd顺势
             val kdj0    = kdj.data(0)
             val kdj1    = kdj.data(1)

@@ -342,6 +342,8 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             )
             .send(backend)
 
+        // logger.info(response.body)
+
         response.body
             .fromJsonMust[AccountInfoResponse]
             .positions

@@ -68,6 +68,7 @@ class MacdStrategy(
         macd.tick(k)
     }
 
+    var lastTick: Kline = null
     def tick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
@@ -78,7 +79,11 @@ class MacdStrategy(
         if (klines.data.length < 20) {
             return
         }
-        val direction = macd.macdCross()
+
+        val macdDirection0 = macd.macdHistoryDirection()
+        val macdDirection1 = macd.macdHistoryDirection(1)
+        val maDirection = ma.maDirection
+
         val as        = avgSize()
 
         // 当前K线已经开仓过了
@@ -86,14 +91,14 @@ class MacdStrategy(
             return
         }
 
+        // macd 转向
+        // 价格在均线劣势侧
+        // 有效阳线 size > 0.1
         if (
-          direction != 0 &&                                               // 金叉死叉发生
-          (k.close - ma.data(0).value) * direction < 0.2 * as &&          // 价格有成本优势
-          Range(1, 6).map(macd.macdCross(_)).forall(item => item == 0) && // 金叉死叉发生前， 反向趋势持续至少5个周期
-          macd.data.slice(1, 8).map(_.bar.abs).max / macd.data
-              .slice(1, 8)
-              .map(_.bar.abs)
-              .min > 4                                                    // macd幅度够大
+          maDirection == macdDirection0 &&
+          maDirection != macdDirection1 && 
+          (k.close - ma.data(0).value) * maDirection <= avgSize() * 0.1 && 
+          (k.close - k.open) * maDirection > 0
         ) {
             // 当前无持仓才开仓
             val positions = trader.getPositions(symbol)
@@ -103,9 +108,9 @@ class MacdStrategy(
             positionMgr.open(
               k,
               k.close,
-              direction,
-              Some(k.close - (as * 1) * direction),
-              Some(k.close + (as * 1.25) * direction)
+              maDirection,
+              Some(k.close - (as * 1) * maDirection),
+              Some(k.close + (as * 1.5) * maDirection)
             )
         }
 

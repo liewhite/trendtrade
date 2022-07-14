@@ -18,7 +18,7 @@ class PositionMgr(
     val logger = Logger("positionMgr")
 
     var currentPosition: Option[Position] = None
-    def cleanPosition() = {
+    def cleanPosition()                   = {
         currentPosition = None
     }
 
@@ -62,7 +62,13 @@ class PositionMgr(
 
     // 发送订单， 等待成交
     // 止盈止损
-    def open(k: Kline,price: BigDecimal, direction: Int, stopLoss: Option[BigDecimal], tp: Option[BigDecimal]): Unit = {
+    def open(
+        k: Kline,
+        price: BigDecimal,
+        direction: Int,
+        stopLoss: Option[BigDecimal],
+        tp: Option[BigDecimal]
+    ): Unit = {
         if (currentPosition.nonEmpty) {
             return
         }
@@ -88,7 +94,7 @@ class PositionMgr(
               side,
               quantity,
               stopLoss.map(formatPrice(_)),
-              tp.map(formatPrice(_)),
+              tp.map(formatPrice(_))
             )
             val msg = s"开仓成功 ${symbol}, ${side} ${quantity} sl: ${stopLoss} tp: ${tp}"
             logger.info(msg)
@@ -119,6 +125,36 @@ class PositionMgr(
         }
     }
 
+    def closeManually(positionDirection: Int,quantity: BigDecimal) = {
+        val msg = s"强制平仓:${symbol}"
+        logger.info(msg)
+        ntf.sendNotify(msg)
+        try {
+            trader.sendOrder(
+              symbol,
+              if (positionDirection == 1) then TradeSide.SELL else TradeSide.BUY,
+              quantity,
+              close = true
+            )
+            val msg = s"平仓成功: ${symbol}"
+            logger.info(msg)
+            ntf.sendNotify(msg)
+        } catch {
+            case e: TimeoutException => {
+                val msg = s"挂单未成交， 请手动取消或平仓, ${symbol}  ${e}"
+                logger.error(msg)
+                exceptionNotify.sendNotify(msg)
+            }
+            case e: Exception => {
+                val msg = s"平仓失败， 请检查账户是否存在不一致 ${symbol} ${e}"
+                logger.error(msg)
+                exceptionNotify.sendNotify(msg)
+            }
+        }
+        // 无论如何都要删除持仓， 不然容易引起不一致, 币安端可以手动操作平仓
+        currentPosition = None
+
+    }
     def closeCurrent(k: Kline, reason: String = ""): Unit = {
         currentPosition match {
             case None       =>

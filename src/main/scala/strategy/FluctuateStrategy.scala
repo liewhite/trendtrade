@@ -14,7 +14,7 @@ import java.time.Duration
 import notifier.Notify
 
 // 由趋势策略改良
-// 价格处于均线劣势侧且出现顺势K线开仓
+// 价格处于均线劣势侧且出现一定幅度的顺势K线开仓
 // 设置适当的止盈止损
 class FluctuateStrategy(
     symbol:          String,
@@ -44,9 +44,6 @@ class FluctuateStrategy(
         val history = trader.getHistory(symbol, interval)
         // 去掉第一条
         history.dropRight(1).foreach(tick(_, true))
-        logger.info(
-          s"load history of ${symbol} , last kline: ${klines.data(0)} ma20: ${maSeq.data(0)}"
-        )
     }
 
     def metricTick(k: Kline) = {
@@ -82,11 +79,6 @@ class FluctuateStrategy(
                 return
             }
 
-            val positions = trader.getPositions(symbol)
-            if (positions.length != 0) {
-                return
-            }
-
             val maDirection = maSeq.maDirection
 
             val as = avgSize()
@@ -95,15 +87,22 @@ class FluctuateStrategy(
             // 平仓后,再判断是否需要开仓
             if (
               maDirection != 0 &&                                         // 均线有方向
+              maSeq.historyMaDirection(1) == maDirection &&
+              maSeq.historyMaDirection(2) == maSeq.historyMaDirection(1) &&
               (k.close - maSeq.data(0).value) * maDirection < as * 0.1 && // 不正偏离均线太多
-              (k.close - openThreshold) * maDirection > 0                 // 只在突破当前K线端点时开仓, 避免单K内来回震荡触发开仓
+              (k.high - k.low) > avgSize() * 0.2 &&                       // 有效K线
+              (k.close - k.open) * maDirection > 0                        // 阳线
             ) {
+                val positions = trader.getPositions(symbol)
+                if (positions.length != 0) {
+                    return
+                }
                 positionMgr.open(
                   k,
                   k.close,
                   maDirection,
                   Some(k.close - (as * 1) * maDirection),
-                  Some(k.close + (as * 1) * maDirection)
+                  Some(k.close + (as * 1.25) * maDirection)
                 )
             }
         }

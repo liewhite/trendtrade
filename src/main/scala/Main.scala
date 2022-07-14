@@ -67,7 +67,9 @@ def start()              = {
         bot.start()
         bot
     })
-    // binanceApi.sendOrder("BTCBUSD", TradeSide.BUY, 0.001, Some(20800), Some(21000))
+    // binanceApi.sendOrder("BTCBUSD", TradeSide.SELL, 0.001, Some(21000), Some(18000))
+    // val positionMgr = PositionMgr("BTCBUSD", binanceApi, 10, notifyBot, exceptionBot)
+    // positionMgr.closeManually(-1, 0.001)
 }
 
 @main def main: Unit = {
