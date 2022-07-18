@@ -138,14 +138,8 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
         Some(v)
     }
 
-    def macdDirection: Int              = {
-        if ((data(0).bar - data(1).bar).signum == 1 && data(1).bar < 0) {
-            1
-        } else if ((data(0).bar - data(1).bar).signum == -1 && data(1).bar > 0) {
-            -1
-        } else {
-            0
-        }
+    def macdDirection: Int = {
+        (data(0).bar - data(1).bar).signum
     }
 
     def macdCross(offset: Int = 0): Int = {
@@ -249,11 +243,11 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
     def kdjCrossDirection(offset: Int = 0): Int = {
         val a = data(offset)
         val b = data(offset + 1)
-        if(b.j < b.d && a.j >= a.d && b.j < 20) {
+        if (b.j < b.d && a.j >= a.d && b.j < 20) {
             1
-        }else if(b.j > b.d && a.j <= a.d && b.j > 80) {
+        } else if (b.j > b.d && a.j <= a.d && b.j > 80) {
             -1
-        }else{
+        } else {
             0
         }
     }

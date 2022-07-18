@@ -106,6 +106,8 @@ class MaStrategy(
                             positionMgr.closeCurrent(k, "浮亏止损")
                         }
                     } else {
+                        // 抖动条件: 阴阳线临界点 + 均线调头临界点 重合
+                        // 避免方法： 开仓要求阳线且有一定涨幅
                         if (
                           (k.close - maSeq.data(0).value) * positionDirection <= 0 // 均线调头,价格在劣势侧
                         ) {
@@ -115,7 +117,9 @@ class MaStrategy(
                 }
             }
 
-            if(openTime != null && Duration.between(openTime, LocalDateTime.now()).getSeconds() < 60) {
+            if (
+              openTime != null && Duration.between(openTime, LocalDateTime.now()).getSeconds() < 60
+            ) {
                 return
             }
 
@@ -123,11 +127,13 @@ class MaStrategy(
             if (
               positionMgr.currentPosition.isEmpty &&                      // 无持仓
               maDirection != 0 &&                                         // 均线有方向
-              maSeq.historyMaDirection(1) == maDirection &&
-              maSeq.historyMaDirection(2) == maSeq.historyMaDirection(1) &&
+              macd.macdDirection == maDirection && // macd方向一致
+            //   maSeq.historyMaDirection(1) == maDirection &&
+            //   maSeq.historyMaDirection(2) == maSeq.historyMaDirection(1) &&
               (k.close - maSeq.data(0).value) * maDirection < as * 0.2 && // 现价不正偏离均线太多(成本优势)
+            //   (k.close - maSeq.data(0).value) * maDirection > 0 && // 在均线上
               (k.close - k.open) * maDirection > 0 &&                     // 阳线
-              (k.close - k.open) * maDirection > avgSize() * 0.2          // 有效K线， 过滤了开盘即平仓的尴尬
+              (k.close - k.open) * maDirection > avgSize() * 0.1          // 有效K线， 过滤了开盘即平仓的尴尬, 以及下跌中的无限抄底
             ) {
                 positionMgr.open(k, k.close, maDirection, None, None)
                 // 休息一分钟
