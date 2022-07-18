@@ -55,7 +55,7 @@ def start()              = {
     logger.info("create strategies for symbols")
 
     val strategies = symbols.map(s => {
-        val bot = MaStrategy(
+        val bot = TrendTrackStrategy(
           s.symbol,
           interval,
           cfg.maSize,

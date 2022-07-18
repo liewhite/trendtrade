@@ -21,6 +21,12 @@ class PositionMgr(
     def cleanPosition()                   = {
         currentPosition = None
     }
+    def updateSl(sl: Option[BigDecimal]) = {
+        currentPosition = currentPosition match {
+            case None => None
+            case Some(p) => Some(p.copy(stopLoss = sl))
+        }
+    }
 
     def hasPosition: Boolean = currentPosition.nonEmpty
 
@@ -66,8 +72,9 @@ class PositionMgr(
         k: Kline,
         price: BigDecimal,
         direction: Int,
-        stopLoss: Option[BigDecimal],
-        tp: Option[BigDecimal]
+        sl: Option[BigDecimal] = None,
+        tp: Option[BigDecimal] = None,
+        autoClose: Boolean = true // 是否挂止损止盈单
     ): Unit = {
         if (currentPosition.nonEmpty) {
             return
@@ -89,14 +96,17 @@ class PositionMgr(
         logger.info(msg)
         ntf.sendNotify(msg)
         try {
+            val stopLoss = if(autoClose) sl.map(formatPrice(_)) else None
+            val takeProfit = if(autoClose) tp.map(formatPrice(_)) else None
             trader.sendOrder(
               symbol,
               side,
               quantity,
-              stopLoss.map(formatPrice(_)),
-              tp.map(formatPrice(_))
+              stopLoss,
+              takeProfit
             )
-            val msg = s"开仓成功 ${symbol}, ${side} ${quantity} sl: ${stopLoss} tp: ${tp}"
+            val msg = s"开仓成功 ${symbol}, ${side} ${quantity} sl: ${sl} tp: ${tp}"
+
             logger.info(msg)
             ntf.sendNotify(msg)
             currentPosition = Some(
@@ -107,7 +117,7 @@ class PositionMgr(
                 k.close,
                 None,
                 None,
-                stopLoss,
+                sl,
                 tp
               )
             )
