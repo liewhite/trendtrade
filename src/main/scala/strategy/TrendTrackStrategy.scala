@@ -37,7 +37,7 @@ class TrendTrackStrategy(
     def start() = {
         loadHistory()
         positionMgr.loadPosition()
-        if(positionMgr.hasPosition) {
+        if (positionMgr.hasPosition) {
             positionMgr.updateSl(Some(positionMgr.currentPosition.get.openAt))
         }
         // 开始websocket
@@ -99,18 +99,21 @@ class TrendTrackStrategy(
         }
 
         //  利润 / 平均size, >0盈利， <0 亏损
-        val profit = (k.close - p.openAt) * p.direction
+        val profit           = (k.close - p.openAt) * p.direction
         val profitForAvgSize = profit / as
 
-        val newSl = if (profitForAvgSize > 10) {
+        val newSl = if (profitForAvgSize > 20) {
+            // 浮盈大于20倍k线size, 跟踪止盈到最大盈利的90%
+            maxSl(oldSl, k.open + profit * 0.9 * p.direction, p.direction)
+        } else if (profitForAvgSize > 10) {
             // 浮盈大于10倍k线size, 跟踪止盈到最大盈利的80%
             maxSl(oldSl, k.open + profit * 0.8 * p.direction, p.direction)
         } else if (profitForAvgSize > 5) {
             // 浮盈大于5倍k线size, 跟踪止盈到最大盈利的60%
             maxSl(oldSl, k.open + profit * 0.6 * p.direction, p.direction)
         } else if (profitForAvgSize > 1) {
-            // 浮盈大于1倍size， 跟踪止盈到最大盈利的30%
-            maxSl(oldSl, k.open + profit * 0.3 * p.direction, p.direction)
+            // 浮盈大于1倍size， 跟踪止盈到最大盈利的20%
+            maxSl(oldSl, k.open + profit * 0.2 * p.direction, p.direction)
         } else if (profitForAvgSize > 0.5) {
             // 浮盈大于0.5倍size， 止损拉到成本线
             maxSl(oldSl, p.openAt, p.direction)
@@ -118,7 +121,7 @@ class TrendTrackStrategy(
             // 浮盈不超过0.5倍, 0.5倍止损, 开仓时已经设置
             p.stopLoss.get
         }
-        if(newSl != oldSl) {
+        if (newSl != oldSl) {
             ntf.sendNotify(s"${symbol} 移动止损位: ${oldSl} -> ${newSl}")
         }
         positionMgr.updateSl(Some(newSl))
@@ -164,8 +167,8 @@ class TrendTrackStrategy(
               (k.close - k.open) * maDirection > 0 &&                     // 阳线
               (k.close - k.open) * maDirection > avgSize() * 0.1          // 有效K线， 过滤了开盘即平仓的尴尬, 以及下跌中的无限抄底
             ) {
-                // 0.5倍波动止损
-                val sl = k.close - as * 0.5 * maDirection
+                // 0.8倍波动止损
+                val sl = k.close - as * 0.8 * maDirection
                 positionMgr.open(k, k.close, maDirection, Some(sl), None, false)
                 // 休息一分钟
                 openTime = LocalDateTime.now()
