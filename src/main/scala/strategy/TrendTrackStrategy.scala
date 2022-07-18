@@ -160,18 +160,30 @@ class TrendTrackStrategy(
 
             val as = avgSize()
             if (
-              positionMgr.currentPosition.isEmpty &&                      // 无持仓
               maDirection != 0 &&                                         // 均线有方向
               macd.macdDirection == maDirection &&                        // macd方向一致
               (k.close - maSeq.data(0).value) * maDirection < as * 0.2 && // 现价不正偏离均线太多(成本优势)
               (k.close - k.open) * maDirection > 0 &&                     // 阳线
               (k.close - k.open) * maDirection > avgSize() * 0.1          // 有效K线， 过滤了开盘即平仓的尴尬, 以及下跌中的无限抄底
             ) {
-                // 0.8倍波动止损
-                val sl = k.close - as * 0.8 * maDirection
-                positionMgr.open(k, k.close, maDirection, Some(sl), None, false)
-                // 休息一分钟
-                openTime = LocalDateTime.now()
+                def open() = {
+                    // 0.8倍波动止损
+                    val sl = k.close - as * 0.8 * maDirection
+                    positionMgr.open(k, k.close, maDirection, Some(sl), None, false)
+                    // 休息一分钟
+                    openTime = LocalDateTime.now()
+                }
+
+                if (positionMgr.currentPosition.isEmpty) {
+                    open()
+                } else if (
+                  positionMgr.currentPosition.nonEmpty && positionMgr.currentPosition.get.direction == -maDirection
+                ) {
+                    positionMgr.closeCurrent(k, "形态反转， 平仓反手")
+                    open()
+                } else {
+                    // 已有持仓， 忽略
+                }
             }
         }
     }

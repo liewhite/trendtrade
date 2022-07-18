@@ -86,7 +86,6 @@ class MasStrategy(
             // 开仓看均线方向, 均线向上就突破high开仓
             val openThreshold = if (maDirection == 1) lastTick.high else lastTick.low
 
-            // 检查是否需要平仓, 同一K线上， 平仓一次， 下次平仓必须要超过该价位了, 不断放大, 限制平仓次数
             if (positionMgr.currentPosition.nonEmpty) {
                 val positionDirection = positionMgr.currentPosition.get.direction
                 // 平仓看持仓方向， 持有多单则跌破low平仓， 持有空单则
@@ -155,7 +154,7 @@ class MasStrategy(
               maSeq.historyMaDirection(2) == maSeq.historyMaDirection(1) &&
               (k.close - maSeq.data(0).value) * maDirection < as * 0.2 && // 现价不正偏离均线太多(成本优势)
               (k.close - k.open) * maDirection > 0 &&                     // 阳线
-              (k.high - k.low) > avgSize() * 0.2 &&                         // 有效K线， 过滤了开盘即平仓的尴尬
+              (k.high - k.low) > avgSize() * 0.1 &&                         // 有效K线， 过滤了开盘即平仓的尴尬
               (k.close - openThreshold) * maDirection > 0
             ) {
                 positionMgr.open(k, k.close, maDirection, None, None)

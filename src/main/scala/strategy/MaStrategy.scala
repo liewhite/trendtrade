@@ -82,7 +82,6 @@ class MaStrategy(
 
             val maDirection = maSeq.maDirection
 
-            // 检查是否需要平仓, 同一K线上， 平仓一次， 下次平仓必须要超过该价位了, 不断放大, 限制平仓次数
             if (positionMgr.currentPosition.nonEmpty) {
                 val as                = avgSize()
                 val positionDirection = positionMgr.currentPosition.get.direction
@@ -94,13 +93,13 @@ class MaStrategy(
                         val preK = klines.data(1)
                         if (
                           ((k.close - maSeq.data(0).value) * positionDirection < 0 &&
-                              k.end) ||                                                                      // 收在劣势侧
+                              k.end) ||                                                                // 收在劣势侧
                           ((k.open - maSeq.data(0).value) * positionDirection <= 0 &&
-                              (preK.close - preK.open) * positionDirection < 0)                              // 上一K线收阴线， 后一K开在劣势侧
+                              (preK.close - preK.open) * positionDirection < 0)                        // 上一K线收阴线， 后一K开在劣势侧
                         ) {
                             positionMgr.closeCurrent(k, "劣势侧收阴线")
                         } else if (
-                          (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < -1.2 * as // 保证正常波动不会出局
+                          (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < -as // 保证正常波动不会出局
                         ) {
                             // 浮亏强制止损
                             positionMgr.closeCurrent(k, "浮亏止损")
@@ -108,6 +107,7 @@ class MaStrategy(
                     } else {
                         // 抖动条件: 阴阳线临界点 + 均线调头临界点 重合
                         // 避免方法： 开仓要求阳线且有一定涨幅
+                        // 均线调头必然先会跌破均线, 如果跌破均线和调头在同一根K线且跌幅巨大， 就很难受了
                         if (
                           (k.close - maSeq.data(0).value) * positionDirection <= 0 // 均线调头,价格在劣势侧
                         ) {
@@ -127,11 +127,8 @@ class MaStrategy(
             if (
               positionMgr.currentPosition.isEmpty &&                      // 无持仓
               maDirection != 0 &&                                         // 均线有方向
-              macd.macdDirection == maDirection && // macd方向一致
-            //   maSeq.historyMaDirection(1) == maDirection &&
-            //   maSeq.historyMaDirection(2) == maSeq.historyMaDirection(1) &&
+              macd.macdDirection == maDirection &&                        // macd方向一致
               (k.close - maSeq.data(0).value) * maDirection < as * 0.2 && // 现价不正偏离均线太多(成本优势)
-            //   (k.close - maSeq.data(0).value) * maDirection > 0 && // 在均线上
               (k.close - k.open) * maDirection > 0 &&                     // 阳线
               (k.close - k.open) * maDirection > avgSize() * 0.1          // 有效K线， 过滤了开盘即平仓的尴尬, 以及下跌中的无限抄底
             ) {
