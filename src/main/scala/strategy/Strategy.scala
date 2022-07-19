@@ -83,6 +83,10 @@ class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
             None
         }
     }
+    def currentValue = {
+        data(0).value
+    }
+
     def maDirection                          = {
         (data(0).value - data(1).value).signum
     }
@@ -240,12 +244,14 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
     }
 
     // kdj金叉死叉
-    def kdjCrossDirection(offset: Int = 0): Int = {
+    def kdjCrossDirection(offset: Int = 0, strict: Boolean = false): Int = {
         val a = data(offset)
         val b = data(offset + 1)
-        if (b.j < b.d && a.j >= a.d && b.j < 20) {
+        if (b.j < b.d && a.j >= a.d && ( !strict || b.j < 25 ) ) {
+        // if (b.j < b.d && a.j >= a.d) {
             1
-        } else if (b.j > b.d && a.j <= a.d && b.j > 80) {
+        } else if (b.j > b.d && a.j <= a.d && (!strict ||b.j > 75 ) ) {
+        // } else if (b.j > b.d && a.j <= a.d) {
             -1
         } else {
             0

@@ -14,21 +14,22 @@ import java.time.Duration
 import notifier.Notify
 
 // 趋势跟踪
-// 开仓和均线策略一致
-// 开仓后以K线下沿止损
-// 浮盈后跟踪止盈
+// kdj 金叉死叉 + macd 顺势
+// 移动止损
+// 出现反向信号反手开仓
 class TrendTrackStrategy(
     symbol:          String,
     interval:        String,
-    maSize:          Int,
+    maInterval:      Int,
     maxHold:         Int,
     trader:          BinanceApi,
     ntf:             Notify,
     exceptionNotify: Notify
 ) {
     val klines      = KlineMetric()
-    val maSeq       = MaMetric(klines, maSize)
+    val ma          = MaMetric(klines, maInterval)
     val macd        = MacdMetric(klines)
+    val kdj         = KdjMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
 
     val logger = Logger("strategy")
@@ -56,8 +57,9 @@ class TrendTrackStrategy(
 
     def metricTick(k: Kline) = {
         klines.tick(k)
-        maSeq.tick(k)
+        kdj.tick(k)
         macd.tick(k)
+        ma.tick(k)
     }
 
     // 除当前K外的最近k线平均大小
@@ -102,43 +104,54 @@ class TrendTrackStrategy(
         val profit           = (k.close - p.openAt) * p.direction
         val profitForAvgSize = profit / as
 
-        val newSl = if (profitForAvgSize > 20) {
+        val (newSl, reason) = if (profitForAvgSize > 20) {
             // 浮盈大于20倍k线size, 跟踪止盈到最大盈利的90%
-            maxSl(oldSl, k.open + profit * 0.9 * p.direction, p.direction)
+            (maxSl(oldSl, p.openAt + profit * 0.9 * p.direction, p.direction), "达到20倍波动")
         } else if (profitForAvgSize > 10) {
             // 浮盈大于10倍k线size, 跟踪止盈到最大盈利的80%
-            maxSl(oldSl, k.open + profit * 0.8 * p.direction, p.direction)
+            (maxSl(oldSl, p.openAt + profit * 0.8 * p.direction, p.direction), "达到10倍波动")
         } else if (profitForAvgSize > 5) {
             // 浮盈大于5倍k线size, 跟踪止盈到最大盈利的60%
-            maxSl(oldSl, k.open + profit * 0.6 * p.direction, p.direction)
+            (maxSl(oldSl, p.openAt + profit * 0.6 * p.direction, p.direction), "达到5倍波动")
+        } else if (profitForAvgSize > 3) {
+            // 浮盈大于3倍k线size, 跟踪止盈到最大盈利的40%
+            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到3倍波动")
         } else if (profitForAvgSize > 1) {
-            // 浮盈大于1倍size， 跟踪止盈到最大盈利的20%
-            maxSl(oldSl, k.open + profit * 0.2 * p.direction, p.direction)
-        } else if (profitForAvgSize > 0.5) {
-            // 浮盈大于0.5倍size， 止损拉到成本线
-            maxSl(oldSl, p.openAt, p.direction)
+            // 浮盈大于1倍size， 保本出
+            (maxSl(oldSl, p.openAt + profit * 0.1 * p.direction, p.direction), "达到1倍波动")
+        } else if (profitForAvgSize <= 0.5) {
+            // 几乎无盈利或浮亏， 0.8倍平均size止损
+            // 当波动越来越小， 止损也越来越小
+            // 反之， 波动大， 止损就大， 跟随市场
+            (maxSl(oldSl, p.openAt - as * 1 * p.direction, p.direction), "无浮盈")
         } else {
-            // 浮盈不超过0.5倍, 0.5倍止损, 开仓时已经设置
-            p.stopLoss.get
+            // 应该不会执行到这里
+            (p.stopLoss.get, "无止损调节需求")
         }
         if (newSl != oldSl) {
-            ntf.sendNotify(s"${symbol} 移动止损位: ${oldSl} -> ${newSl}")
+            ntf.sendNotify(
+              s"${symbol} 利润: ${profit} 平均波动: ${as} 移动止损位: ${oldSl} -> ${newSl}, 原因: ${reason}"
+            )
         }
         positionMgr.updateSl(Some(newSl))
     }
 
     var openTime: LocalDateTime = null
 
-    def checkSl() = {
+    def checkSl(): Boolean = {
         if (positionMgr.hasPosition) {
             val k            = klines.data(0)
             val p            = positionMgr.currentPosition.get
             val currentPrice = k.close
             if ((currentPrice - p.stopLoss.get) * p.direction < 0) {
                 positionMgr.closeCurrent(k, "触发止损位平仓")
+                true
+            } else {
+                false
             }
+        } else {
+            false
         }
-
     }
 
     def doTick(k: Kline, history: Boolean = false): Unit = {
@@ -147,10 +160,12 @@ class TrendTrackStrategy(
         if (!history && klines.data.length >= 20) {
             // 更新止损位
             updateSl()
-            // 止损
             checkSl()
 
-            val maDirection = maSeq.maDirection
+            val macdDirection      = macd.macdDirection
+            val kdjDirection       = kdj.kdjCrossDirection()
+            // 低位金叉， 高位死叉
+            val strictKdjDirection = kdj.kdjCrossDirection(strict = true)
 
             if (
               openTime != null && Duration.between(openTime, LocalDateTime.now()).getSeconds() < 60
@@ -158,31 +173,47 @@ class TrendTrackStrategy(
                 return
             }
 
-            val as = avgSize()
-            if (
-              maDirection != 0 &&                                         // 均线有方向
-              macd.macdDirection == maDirection &&                        // macd方向一致
-              (k.close - maSeq.data(0).value) * maDirection < as * 0.2 && // 现价不正偏离均线太多(成本优势)
-              (k.close - k.open) * maDirection > 0 &&                     // 阳线
-              (k.close - k.open) * maDirection > avgSize() * 0.1          // 有效K线， 过滤了开盘即平仓的尴尬, 以及下跌中的无限抄底
-            ) {
-                def open() = {
-                    // 0.8倍波动止损
-                    val sl = k.close - as * 0.8 * maDirection
-                    positionMgr.open(k, k.close, maDirection, Some(sl), None, false)
+            val as     = avgSize()
+            def open() = {
+                if (
+                  openTime != null && Duration
+                      .between(openTime, LocalDateTime.now())
+                      .getSeconds() < 60
+                ) {} else {
+                    // 1倍波动止损
+                    val sl = k.close - as * 1 * macdDirection
+                    positionMgr.open(k, k.close, macdDirection, Some(sl), None, false)
                     // 休息一分钟
                     openTime = LocalDateTime.now()
                 }
+            }
 
-                if (positionMgr.currentPosition.isEmpty) {
-                    open()
-                } else if (
-                  positionMgr.currentPosition.nonEmpty && positionMgr.currentPosition.get.direction == -maDirection
+            // 开盘的时候或者收盘的时候才开仓
+            // 均线顺势逆势偏移范围不同
+            val maOffset = if (ma.maDirection == macdDirection) {
+                0.2 * as
+            } else {
+                -2 * as
+            }
+
+            if (
+              ((k.close == k.open && k.close == k.high && k.close == k.low) || k.end) &&
+              macdDirection != 0 &&
+              kdjDirection == macdDirection
+            ) {
+                if (
+                  positionMgr.currentPosition.nonEmpty &&
+                  positionMgr.currentPosition.get.direction == -macdDirection
                 ) {
-                    positionMgr.closeCurrent(k, "形态反转， 平仓反手")
+                    // 出现反向金叉死叉， 平仓但暂不反手
+                    positionMgr.closeCurrent(k, "形态反转,平仓")
+                }
+
+                // 没有仓位， 且满足开仓条件， 开仓
+                if (
+                  positionMgr.currentPosition.isEmpty && strictKdjDirection == kdjDirection && (k.close - ma.currentValue) * macdDirection < maOffset
+                ) {
                     open()
-                } else {
-                    // 已有持仓， 忽略
                 }
             }
         }

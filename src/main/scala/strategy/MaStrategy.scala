@@ -13,21 +13,23 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 
-// 均线顺势， 价格
-// 均线顺势，价格合理， 且价格处于上涨时开仓
-// 均线调头， 破均线和新低平仓, 避免来回止损
-// 均线未调头，收盘价未站上均线且收阴线平仓
+
+// 顺均线方向开仓
+// 要求负偏离1个size以上, 两个size以下
+// 止损为2.5size
 class MaStrategy(
     symbol:          String,
     interval:        String,
-    maSize:          Int,
+    shortMaInterval: Int, // 短均线
+    longMaInterval:  Int, // 长均线
     maxHold:         Int,
     trader:          BinanceApi,
     ntf:             Notify,
     exceptionNotify: Notify
 ) {
     val klines      = KlineMetric()
-    val maSeq       = MaMetric(klines, maSize)
+    val shortMa     = MaMetric(klines, shortMaInterval)
+    val longMa      = MaMetric(klines, longMaInterval)
     val macd        = MacdMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
 
@@ -53,8 +55,74 @@ class MaStrategy(
 
     def metricTick(k: Kline) = {
         klines.tick(k)
-        maSeq.tick(k)
+        shortMa.tick(k)
+        longMa.tick(k)
         macd.tick(k)
+    }
+
+    // 更新止损位
+    def updateSl(): Unit      = {
+        if (!positionMgr.hasPosition) {
+            return
+        }
+
+        val k     = klines.data(0)
+        val as    = avgSize()
+        val p     = positionMgr.currentPosition.get
+        val oldSl = p.stopLoss.get
+
+        def maxSl(o: BigDecimal, n: BigDecimal, d: Int): BigDecimal = {
+            if (d == 1) {
+                // 多单， 取最大值
+                Vector(o, n).max
+            } else if (d == -1) {
+                // 空单， 取最小值
+                Vector(o, n).min
+            } else {
+                throw Exception(s"持仓方向为0: ${p}")
+            }
+        }
+
+        //  偏离均线的距离
+        val offsetFromMaValue = (k.close - longMa.currentValue) * p.direction 
+        val offsetFromMa     =  offsetFromMaValue / as 
+        val maValue = longMa.currentValue
+
+        // 当价格远离均线， 移动止盈
+        val (newSl, reason) = if (offsetFromMa > 20) {
+            (maxSl(oldSl, maValue + offsetFromMa * 0.9 * p.direction, p.direction), "达到20倍波动")
+        } else if (offsetFromMa > 10) {
+            (maxSl(oldSl, maValue + offsetFromMa * 0.8 * p.direction, p.direction), "达到10倍波动")
+        } else if (offsetFromMa > 5) {
+            (maxSl(oldSl, maValue + offsetFromMa * 0.6 * p.direction, p.direction), "达到5倍波动")
+        } else if (offsetFromMa > 3) {
+            (maxSl(oldSl, maValue + offsetFromMa * 0.4 * p.direction, p.direction), "达到3倍波动")
+        } else {
+            // 应该不会执行到这里
+            (p.stopLoss.get, "无止损调节需求")
+        }
+        if (newSl != oldSl) {
+            ntf.sendNotify(
+              s"${symbol} 当前价格: ${k.close} 均线: ${maValue} 平均波动: ${as} 移动止损位: ${oldSl} -> ${newSl}, 原因: ${reason}"
+            )
+        }
+        positionMgr.updateSl(Some(newSl))
+    }
+
+    def checkSl(): Boolean = {
+        if (positionMgr.hasPosition) {
+            val k            = klines.data(0)
+            val p            = positionMgr.currentPosition.get
+            val currentPrice = k.close
+            if ((currentPrice - p.stopLoss.get) * p.direction < 0) {
+                positionMgr.closeCurrent(k, "触发移动止盈平仓")
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     }
 
     // 除当前K外的最近k线平均大小
@@ -75,12 +143,22 @@ class MaStrategy(
 
     var openTime: LocalDateTime = null
 
+    // 检查平仓
+    // 在浮动止盈后进行
+    // 难点在平仓后又瞬间开仓， 失去平仓意义。
+    def checkClose() = {
+        // 如果有盈利，则拿到均线调头
+
+    }
+
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
         if (!history && klines.data.length >= 20) {
+            updateSl()
+            checkSl()
 
-            val maDirection = maSeq.maDirection
+            val maDirection = longMa.maDirection
 
             if (positionMgr.currentPosition.nonEmpty) {
                 val as                = avgSize()
@@ -92,9 +170,9 @@ class MaStrategy(
                     if (positionDirection == maDirection) {
                         val preK = klines.data(1)
                         if (
-                          ((k.close - maSeq.data(0).value) * positionDirection < 0 &&
+                          ((k.close - shortMa.currentValue) * positionDirection < 0 &&
                               k.end) ||                                                                // 收在劣势侧
-                          ((k.open - maSeq.data(0).value) * positionDirection <= 0 &&
+                          ((k.open - shortMa.currentValue) * positionDirection <= 0 &&
                               (preK.close - preK.open) * positionDirection < 0)                        // 上一K线收阴线， 后一K开在劣势侧
                         ) {
                             positionMgr.closeCurrent(k, "劣势侧收阴线")
@@ -109,7 +187,8 @@ class MaStrategy(
                         // 避免方法： 开仓要求阳线且有一定涨幅
                         // 均线调头必然先会跌破均线, 如果跌破均线和调头在同一根K线且跌幅巨大， 就很难受了
                         if (
-                          (k.close - maSeq.data(0).value) * positionDirection <= 0 // 均线调头,价格在劣势侧
+                          (k.close - shortMa.currentValue) * positionDirection <= 0 // 均线调头,价格在劣势侧
+                          // 再涨0.5size 均线还是不能回头
                         ) {
                             positionMgr.closeCurrent(k, "均线调头")
                         }
@@ -128,11 +207,11 @@ class MaStrategy(
               positionMgr.currentPosition.isEmpty &&                      // 无持仓
               maDirection != 0 &&                                         // 均线有方向
               macd.macdDirection == maDirection &&                        // macd方向一致
-              (k.close - maSeq.data(0).value) * maDirection < as * 0.2 && // 现价不正偏离均线太多(成本优势)
-              (k.close - k.open) * maDirection > 0 &&                     // 阳线
-              (k.close - k.open) * maDirection > avgSize() * 0.1          // 有效K线， 过滤了开盘即平仓的尴尬, 以及下跌中的无限抄底
+              (k.close - longMa.currentValue) * maDirection < as * 0.2  // 现价不正偏离均线太多(成本优势)
+            //   (k.close - k.open) * maDirection > 0 &&                     // 阳线
+            //   (k.close - k.open) * maDirection > avgSize() * 0.3          // 有效K线， 过滤了开盘即平仓的尴尬, 以及下跌中的无限抄底
             ) {
-                positionMgr.open(k, k.close, maDirection, None, None)
+                positionMgr.open(k, k.close, maDirection, Some(k.close - as), None)
                 // 休息一分钟
                 openTime = LocalDateTime.now()
             }
