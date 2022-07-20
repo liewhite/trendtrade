@@ -116,9 +116,9 @@ class TrendTrackStrategy(
         } else if (profitForAvgSize > 3) {
             // 浮盈大于3倍k线size, 跟踪止盈到最大盈利的40%
             (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到3倍波动")
-        } else if (profitForAvgSize > 1) {
+        } else if (profitForAvgSize > 1.5) {
             // 浮盈大于1倍size， 保本出
-            (maxSl(oldSl, p.openAt + profit * 0.1 * p.direction, p.direction), "达到1倍波动")
+            (maxSl(oldSl, p.openAt + profit * 0.2 * p.direction, p.direction), "达到1.5倍波动")
         } else if (profitForAvgSize <= 0.5) {
             // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小

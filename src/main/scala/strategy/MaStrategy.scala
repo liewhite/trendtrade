@@ -13,9 +13,8 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 
-
+// 加上远离均线时的浮动止盈
 // 顺均线方向开仓
-// 要求负偏离1个size以上, 两个size以下
 // 止损为2.5size
 class MaStrategy(
     symbol:          String,
@@ -61,7 +60,7 @@ class MaStrategy(
     }
 
     // 更新止损位
-    def updateSl(): Unit      = {
+    def updateSl(): Unit = {
         if (!positionMgr.hasPosition) {
             return
         }
@@ -69,7 +68,11 @@ class MaStrategy(
         val k     = klines.data(0)
         val as    = avgSize()
         val p     = positionMgr.currentPosition.get
-        val oldSl = p.stopLoss.get
+        // load position 的时候没有止损
+        val oldSl = p.stopLoss match {
+            case None => p.openAt - p.direction * as * 1.5
+            case Some(o) => o
+        }
 
         def maxSl(o: BigDecimal, n: BigDecimal, d: Int): BigDecimal = {
             if (d == 1) {
@@ -83,23 +86,22 @@ class MaStrategy(
             }
         }
 
-        //  偏离均线的距离
-        val offsetFromMaValue = (k.close - longMa.currentValue) * p.direction 
-        val offsetFromMa     =  offsetFromMaValue / as 
-        val maValue = longMa.currentValue
+        //  正偏离均线的值, 优势为正， 劣势为负
+        val offsetFromMaValue = (k.close - longMa.currentValue) * p.direction
+        val offsetFromMa      = offsetFromMaValue / as
+        val maValue           = longMa.current.value
 
-        // 当价格远离均线， 移动止盈
+        // 涨幅远离均线时需要叠加浮动止盈, 可以利用插针行情， 对冲反向插针造成的损失
         val (newSl, reason) = if (offsetFromMa > 20) {
-            (maxSl(oldSl, maValue + offsetFromMa * 0.9 * p.direction, p.direction), "达到20倍波动")
+            (maxSl(oldSl, maValue + offsetFromMaValue * 0.9 * p.direction, p.direction), "达到20倍波动")
         } else if (offsetFromMa > 10) {
-            (maxSl(oldSl, maValue + offsetFromMa * 0.8 * p.direction, p.direction), "达到10倍波动")
+            (maxSl(oldSl, maValue + offsetFromMaValue * 0.8 * p.direction, p.direction), "达到10倍波动")
         } else if (offsetFromMa > 5) {
-            (maxSl(oldSl, maValue + offsetFromMa * 0.6 * p.direction, p.direction), "达到5倍波动")
+            (maxSl(oldSl, maValue + offsetFromMaValue * 0.6 * p.direction, p.direction), "达到5倍波动")
         } else if (offsetFromMa > 3) {
-            (maxSl(oldSl, maValue + offsetFromMa * 0.4 * p.direction, p.direction), "达到3倍波动")
+            (maxSl(oldSl, maValue + offsetFromMaValue * 0.4 * p.direction, p.direction), "达到3倍波动")
         } else {
-            // 应该不会执行到这里
-            (p.stopLoss.get, "无止损调节需求")
+            (oldSl, "无止损调节需求")
         }
         if (newSl != oldSl) {
             ntf.sendNotify(
@@ -146,9 +148,16 @@ class MaStrategy(
     // 检查平仓
     // 在浮动止盈后进行
     // 难点在平仓后又瞬间开仓， 失去平仓意义。
+    // 收盘时， 均线调头或者跌破止损位平仓
     def checkClose() = {
-        // 如果有盈利，则拿到均线调头
-
+        val maDirection = longMa.maDirection
+        val k           = klines.current
+        // 有持仓， k线收盘
+        if (positionMgr.currentPosition.nonEmpty && k.end) {
+            if (maDirection != positionMgr.currentPosition.get.direction) {
+                positionMgr.closeCurrent(k, "均线调头")
+            }
+        }
     }
 
     def doTick(k: Kline, history: Boolean = false): Unit = {
@@ -157,44 +166,9 @@ class MaStrategy(
         if (!history && klines.data.length >= 20) {
             updateSl()
             checkSl()
+            checkClose()
 
             val maDirection = longMa.maDirection
-
-            if (positionMgr.currentPosition.nonEmpty) {
-                val as                = avgSize()
-                val positionDirection = positionMgr.currentPosition.get.direction
-
-                // 阴线才考虑平仓
-                if ((k.close - k.open) * positionDirection < 0) {
-                    // ma 还未反转
-                    if (positionDirection == maDirection) {
-                        val preK = klines.data(1)
-                        if (
-                          ((k.close - shortMa.currentValue) * positionDirection < 0 &&
-                              k.end) ||                                                                // 收在劣势侧
-                          ((k.open - shortMa.currentValue) * positionDirection <= 0 &&
-                              (preK.close - preK.open) * positionDirection < 0)                        // 上一K线收阴线， 后一K开在劣势侧
-                        ) {
-                            positionMgr.closeCurrent(k, "劣势侧收阴线")
-                        } else if (
-                          (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < -as // 保证正常波动不会出局
-                        ) {
-                            // 浮亏强制止损
-                            positionMgr.closeCurrent(k, "浮亏止损")
-                        }
-                    } else {
-                        // 抖动条件: 阴阳线临界点 + 均线调头临界点 重合
-                        // 避免方法： 开仓要求阳线且有一定涨幅
-                        // 均线调头必然先会跌破均线, 如果跌破均线和调头在同一根K线且跌幅巨大， 就很难受了
-                        if (
-                          (k.close - shortMa.currentValue) * positionDirection <= 0 // 均线调头,价格在劣势侧
-                          // 再涨0.5size 均线还是不能回头
-                        ) {
-                            positionMgr.closeCurrent(k, "均线调头")
-                        }
-                    }
-                }
-            }
 
             if (
               openTime != null && Duration.between(openTime, LocalDateTime.now()).getSeconds() < 60
@@ -204,14 +178,14 @@ class MaStrategy(
 
             val as = avgSize()
             if (
-              positionMgr.currentPosition.isEmpty &&                      // 无持仓
-              maDirection != 0 &&                                         // 均线有方向
-              macd.macdDirection == maDirection &&                        // macd方向一致
-              (k.close - longMa.currentValue) * maDirection < as * 0.2  // 现价不正偏离均线太多(成本优势)
-            //   (k.close - k.open) * maDirection > 0 &&                     // 阳线
-            //   (k.close - k.open) * maDirection > avgSize() * 0.3          // 有效K线， 过滤了开盘即平仓的尴尬, 以及下跌中的无限抄底
+              positionMgr.currentPosition.isEmpty && // 无持仓
+              maDirection != 0 &&                    // 均线有方向
+              macd.macdDirection == maDirection &&   // macd方向一致
+              (k.close - longMa.currentValue) * maDirection < as * 0.2 &&  // 现价不正偏离均线太多(成本优势)
+              (k.close - k.open) * maDirection > 0.1 * as   // 阳线
             ) {
-                positionMgr.open(k, k.close, maDirection, Some(k.close - as), None)
+                // 如果还在下跌， macd应该能体现
+                positionMgr.open(k, k.close, maDirection, Some(k.close - (1.5 * as) * maDirection), None, false)
                 // 休息一分钟
                 openTime = LocalDateTime.now()
             }

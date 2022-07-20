@@ -37,6 +37,8 @@ abstract class KBasedMetric[T <: IsEnd] {
 
     def next(k: Kline): Option[T]
 
+    def current: T = data(0)
+
     def maxLength = 1000
 
     def tick(k: Kline): Unit = {
