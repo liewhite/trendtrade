@@ -38,9 +38,9 @@ class TrendTrackStrategy(
     def start() = {
         loadHistory()
         positionMgr.loadPosition()
-        if (positionMgr.hasPosition) {
-            positionMgr.updateSl(Some(positionMgr.currentPosition.get.openAt))
-        }
+        // if (positionMgr.hasPosition) {
+        //     positionMgr.updateSl(Some(positionMgr.currentPosition.get.openAt))
+        // }
         // 开始websocket
         trader.subscribeKlines(symbol, interval, k => tick(k))
     }
@@ -86,7 +86,10 @@ class TrendTrackStrategy(
         val k     = klines.data(0)
         val as    = avgSize()
         val p     = positionMgr.currentPosition.get
-        val oldSl = p.stopLoss.get
+        val oldSl = p.stopLoss match {
+            case None => p.openAt - p.direction * as * 1.5
+            case Some(o) => o
+        }
 
         def maxSl(o: BigDecimal, n: BigDecimal, d: Int): BigDecimal = {
             if (d == 1) {
@@ -118,12 +121,12 @@ class TrendTrackStrategy(
             (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到3倍波动")
         } else if (profitForAvgSize > 1.5) {
             // 浮盈大于1倍size， 保本出
-            (maxSl(oldSl, p.openAt + profit * 0.2 * p.direction, p.direction), "达到1.5倍波动")
+            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到1.5倍波动")
         } else if (profitForAvgSize <= 0.5) {
             // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小
             // 反之， 波动大， 止损就大， 跟随市场
-            (maxSl(oldSl, p.openAt - as * 1 * p.direction, p.direction), "无浮盈")
+            (maxSl(oldSl, p.openAt - as * 1.5 * p.direction, p.direction), "无浮盈")
         } else {
             // 应该不会执行到这里
             (p.stopLoss.get, "无止损调节需求")
@@ -181,7 +184,7 @@ class TrendTrackStrategy(
                       .getSeconds() < 60
                 ) {} else {
                     // 1倍波动止损
-                    val sl = k.close - as * 1 * macdDirection
+                    val sl = k.close - as * 1.5 * macdDirection
                     positionMgr.open(k, k.close, macdDirection, Some(sl), None, false)
                     // 休息一分钟
                     openTime = LocalDateTime.now()
@@ -190,14 +193,15 @@ class TrendTrackStrategy(
 
             // 开盘的时候或者收盘的时候才开仓
             // 均线顺势逆势偏移范围不同
-            val maOffset = if (ma.maDirection == macdDirection) {
-                0.2 * as
-            } else {
-                -2 * as
-            }
+            val maOffset =
+            //      if (ma.maDirection == macdDirection) {
+            //     0.2 * as
+            // } else {
+            //     -2 * as
+            // }
 
             if (
-              ((k.close == k.open && k.close == k.high && k.close == k.low) || k.end) &&
+              k.end &&
               macdDirection != 0 &&
               kdjDirection == macdDirection
             ) {
@@ -209,9 +213,14 @@ class TrendTrackStrategy(
                     positionMgr.closeCurrent(k, "形态反转,平仓")
                 }
 
-                // 没有仓位， 且满足开仓条件， 开仓
+                // 没有仓位
+                // kdj严格金叉
+                // 均线跟kdj同向加速
                 if (
-                  positionMgr.currentPosition.isEmpty && strictKdjDirection == kdjDirection && (k.close - ma.currentValue) * macdDirection < maOffset
+                  positionMgr.currentPosition.isEmpty &&
+                  strictKdjDirection == kdjDirection &&
+                  ((ma.data(0).value - ma.data(1).value) - (ma.data(1).value - ma.data(2).value)).signum == kdjDirection &&
+                  ((ma.data(1).value - ma.data(2).value) - (ma.data(2).value - ma.data(3).value)).signum == kdjDirection
                 ) {
                     open()
                 }

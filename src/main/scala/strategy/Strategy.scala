@@ -75,7 +75,7 @@ case class Ma(
 }
 
 class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
-    def next(k: Kline): Option[Ma]           = {
+    def next(k: Kline): Option[Ma] = {
         val ks = klines.data.slice(0, interval)
         // println(ks.map(_.close).mkString(","))
         if (ks.length != 0) {
@@ -85,7 +85,7 @@ class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
             None
         }
     }
-    def currentValue = {
+    def currentValue               = {
         data(0).value
     }
 
@@ -104,7 +104,8 @@ case class Macd(
     diff:     BigDecimal,
     dea:      BigDecimal,
     bar:      BigDecimal,
-    end:      Boolean
+    end:      Boolean,
+    cross:    Int = 0 // 1金叉， 2死叉
 ) extends IsEnd {
     def next(k: Kline, price: BigDecimal, short: Int = 12, long: Int = 26, mid: Int = 9): Macd = {
         val e12    = ema12 * (short - 1) / (short + 1) + price * 2 / (short + 1)
@@ -124,7 +125,7 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
     def next(k: Kline): Option[Macd] = {
         // 如果只有一根K线，则直接生成MACD
         // 否则根据最新K线和上一根确定的macd 生成新的macd
-        val v = if (data.isEmpty) {
+        val v     = if (data.isEmpty) {
             Macd(k.datetime, k.close, k.close, 0, 0, 0, k.end)
         } else {
             if (data.length == 1) {
@@ -141,7 +142,18 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
                 }
             }
         }
-        Some(v)
+        val cross = if (data.length >= 1) {
+            if (data(0).bar > 0 && v.bar <= 0) {
+                -1
+            } else if (data(0).bar < 0 && v.bar >= 0) {
+                1
+            } else {
+                0
+            }
+        } else {
+            0
+        }
+        Some(v.copy(cross = cross))
     }
 
     def macdDirection: Int = {
@@ -159,15 +171,7 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
     }
 
     def macdHistoryDirection(offset: Int = 0): Int = {
-        if ((data(offset).bar - data(offset + 1).bar).signum == 1 && data(offset + 1).bar < 0) {
-            1
-        } else if (
-          (data(offset).bar - data(offset + 1).bar).signum == -1 && data(offset + 1).bar > 0
-        ) {
-            -1
-        } else {
-            0
-        }
+        (data(offset).bar - data(offset + 1).bar).signum
     }
 
     def deaDirection: Int = {
@@ -181,7 +185,8 @@ case class Kdj(
     k:     BigDecimal,
     d:     BigDecimal,
     j:     BigDecimal,
-    end:   Boolean
+    end:   Boolean,
+    cross: Int = 0 // 1金叉， 2死叉
 ) extends IsEnd {
     def isEnd: Boolean = end
 }
@@ -224,7 +229,7 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
         if (klines.data.length < 10) {
             None
         } else {
-            val v = if (data.isEmpty) {
+            val v     = if (data.isEmpty) {
                 first()
             } else {
                 if (data.length == 1) {
@@ -241,7 +246,18 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
                     }
                 }
             }
-            Some(v)
+            val cross = if (data.length >= 1) {
+                if (data(0).j > data(0).d && v.j <= v.d) {
+                    -1
+                } else if (data(0).j < data(0).d && v.j >= v.d) {
+                    1
+                } else {
+                    0
+                }
+            } else {
+                0
+            }
+            Some(v.copy(cross = cross))
         }
     }
 
@@ -249,11 +265,11 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
     def kdjCrossDirection(offset: Int = 0, strict: Boolean = false): Int = {
         val a = data(offset)
         val b = data(offset + 1)
-        if (b.j < b.d && a.j >= a.d && ( !strict || b.j < 25 ) ) {
-        // if (b.j < b.d && a.j >= a.d) {
+        if (b.j < b.d && a.j >= a.d && (!strict || b.j < 25)) {
+            // if (b.j < b.d && a.j >= a.d) {
             1
-        } else if (b.j > b.d && a.j <= a.d && (!strict ||b.j > 75 ) ) {
-        // } else if (b.j > b.d && a.j <= a.d) {
+        } else if (b.j > b.d && a.j <= a.d && (!strict || b.j > 75)) {
+            // } else if (b.j > b.d && a.j <= a.d) {
             -1
         } else {
             0
