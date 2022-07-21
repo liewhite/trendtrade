@@ -185,7 +185,7 @@ class MasStrategy(
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
-        if (!history && klines.data.length >= 20 && lastTick != null) {
+        if (!history && klines.data.length >= 60 && lastTick != null) {
             updateSl()
             checkSl()
             checkClose()
@@ -198,9 +198,9 @@ class MasStrategy(
             // 上一K没有跌破所有均线
             val lastK            = klines.data(1)
             val lastCloseMetrics = Vector(
-              (lastK.open - shortMa.currentValue).signum,
-              (lastK.open - midMa.currentValue).signum,
-              (lastK.open - longMa.currentValue).signum
+              (lastK.close - shortMa.data(1).value).signum,
+              (lastK.close - midMa.data(1).value).signum,
+              (lastK.close - longMa.data(1).value).signum
             )
 
             // 当前价跌破所有均线

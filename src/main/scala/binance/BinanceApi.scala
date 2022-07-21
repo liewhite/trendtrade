@@ -139,7 +139,7 @@ case class TradeResponse(
     time:   Long
 )
 
-trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, ntf: Notify) {
+trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, ntf: Notify, quoteSymbol: String) {
     val logger = Logger("trader")
 
     val binanceHttpBaseUrl = "https://fapi.binance.com"
@@ -435,7 +435,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             )
             .send(backend)
         val res     = lres.body.fromJsonMust[Vector[BalanceResponse]]
-        val busdRes = res.filter(_.asset == "BUSD")
+        val busdRes = res.filter(_.asset == quoteSymbol)
         if (busdRes.isEmpty) {
             (0, 0)
         } else {

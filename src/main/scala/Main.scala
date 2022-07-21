@@ -48,7 +48,8 @@ def start()              = {
       cfg.apiKey,
       cfg.apiSecret,
       cfg.leverage,
-      heartBeatBot
+      heartBeatBot,
+      cfg.quoteSymbol
     ) {}
     binanceApi.start()
 
