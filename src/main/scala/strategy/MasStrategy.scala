@@ -12,23 +12,25 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
-// 做市策略
-// 以最近200k
 
-// 均线族(5,10,20) + macd
-// 且价格没有远离ma20
+// 突破所有均线开仓
+// 收盘回撤两条均线平仓
+// 结合浮动止盈
 class MasStrategy(
     symbol:          String,
     interval:        String,
-    maSize:          Int,
+    shortMaInterval: Int, // 短均线
+    midMaInterval:   Int, // 中均线
+    longMaInterval:  Int, // 长均线
     maxHold:         Int,
     trader:          BinanceApi,
     ntf:             Notify,
     exceptionNotify: Notify
 ) {
     val klines      = KlineMetric()
-    val maSeq       = MaMetric(klines, maSize)
-    val macd        = MacdMetric(klines)
+    val shortMa     = MaMetric(klines, shortMaInterval)
+    val midMa       = MaMetric(klines, midMaInterval)
+    val longMa      = MaMetric(klines, longMaInterval)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
 
     val logger = Logger("strategy")
@@ -53,8 +55,88 @@ class MasStrategy(
 
     def metricTick(k: Kline) = {
         klines.tick(k)
-        maSeq.tick(k)
-        macd.tick(k)
+        shortMa.tick(k)
+        midMa.tick(k)
+        longMa.tick(k)
+    }
+
+    // 更新止损位
+    def updateSl(): Unit = {
+        if (!positionMgr.hasPosition) {
+            return
+        }
+
+        val k     = klines.data(0)
+        val as    = avgSize()
+        val p     = positionMgr.currentPosition.get
+        // load position 的时候没有止损
+        val oldSl = p.stopLoss match {
+            case None    => p.openAt - p.direction * as * 1.5
+            case Some(o) => o
+        }
+
+        def maxSl(o: BigDecimal, n: BigDecimal, d: Int): BigDecimal = {
+            if (d == 1) {
+                // 多单， 取最大值
+                Vector(o, n).max
+            } else if (d == -1) {
+                // 空单， 取最小值
+                Vector(o, n).min
+            } else {
+                throw Exception(s"持仓方向为0: ${p}")
+            }
+        }
+
+        //  利润 / 平均size, >0盈利， <0 亏损
+        val profit           = (k.close - p.openAt) * p.direction
+        val profitForAvgSize = profit / as
+
+        val (newSl, reason) = if (profitForAvgSize > 20) {
+            // 浮盈大于20倍k线size, 跟踪止盈到最大盈利的90%
+            (maxSl(oldSl, p.openAt + profit * 0.9 * p.direction, p.direction), "达到20倍波动")
+        } else if (profitForAvgSize > 10) {
+            // 浮盈大于10倍k线size, 跟踪止盈到最大盈利的80%
+            (maxSl(oldSl, p.openAt + profit * 0.8 * p.direction, p.direction), "达到10倍波动")
+        } else if (profitForAvgSize > 5) {
+            // 浮盈大于5倍k线size, 跟踪止盈到最大盈利的60%
+            (maxSl(oldSl, p.openAt + profit * 0.6 * p.direction, p.direction), "达到5倍波动")
+        } else if (profitForAvgSize > 3) {
+            // 浮盈大于3倍k线size, 跟踪止盈到最大盈利的40%
+            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到3倍波动")
+        } else if (profitForAvgSize > 1.5) {
+            // 浮盈大于1倍size， 保本出
+            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到1.5倍波动")
+        } else if (profitForAvgSize <= 0.5) {
+            // 几乎无盈利或浮亏， 0.8倍平均size止损
+            // 当波动越来越小， 止损也越来越小
+            // 反之， 波动大， 止损就大， 跟随市场
+            (maxSl(oldSl, p.openAt - as * 1.5 * p.direction, p.direction), "无浮盈")
+        } else {
+            // 应该不会执行到这里
+            (p.stopLoss.get, "无止损调节需求")
+        }
+        if (newSl != oldSl) {
+            ntf.sendNotify(
+              s"${symbol} 利润: ${profit} 平均波动: ${as} 移动止损位: ${oldSl} -> ${newSl}, 原因: ${reason}"
+            )
+        }
+        positionMgr.updateSl(Some(newSl))
+    }
+
+    def checkSl(): Boolean = {
+        if (positionMgr.hasPosition) {
+            val k            = klines.data(0)
+            val p            = positionMgr.currentPosition.get
+            val currentPrice = k.close
+            if ((currentPrice - p.stopLoss.get) * p.direction < 0) {
+                positionMgr.closeCurrent(k, "触发移动止盈平仓")
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     }
 
     // 除当前K外的最近k线平均大小
@@ -73,93 +155,97 @@ class MasStrategy(
         avgEntitySize
     }
 
-    // 前一tick信息
-    var lastTick: Kline = null
+    var openTime: LocalDateTime = null
+    var lastTick: Kline         = null
+
+    // 收盘跌破两根均线平仓
+    def checkClose(): Unit = {
+        if (!positionMgr.hasPosition) {
+            return
+        }
+        val k          = klines.current
+        if (!k.end) {
+            return
+        }
+        val pDirection = positionMgr.currentPosition.get.direction
+        if (positionMgr.currentPosition.nonEmpty) {
+            val metrics = Vector(
+              (k.close - shortMa.currentValue) * pDirection <= 0,
+              (k.close - midMa.currentValue) * pDirection <= 0,
+              (k.close - longMa.currentValue) * pDirection <= 0
+            )
+            // 跌破两根均线平仓
+            if (metrics.count(identity) >= 2) {
+                positionMgr.closeCurrent(k, "跌破均线")
+            }
+        }
+    }
 
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
-        if (!history && klines.data.length >= 20) {
+        if (!history && klines.data.length >= 20 && lastTick != null) {
+            updateSl()
+            checkSl()
+            checkClose()
+            if (
+              openTime != null && Duration.between(openTime, LocalDateTime.now()).getSeconds() < 60
+            ) {
+                return
+            }
 
-            val maDirection = maSeq.maDirection
+            // 上一K没有跌破所有均线
+            val lastK            = klines.data(1)
+            val lastCloseMetrics = Vector(
+              (lastK.open - shortMa.currentValue).signum,
+              (lastK.open - midMa.currentValue).signum,
+              (lastK.open - longMa.currentValue).signum
+            )
 
-            // 开仓看均线方向, 均线向上就突破high开仓
-            val openThreshold = if (maDirection == 1) lastTick.high else lastTick.low
+            // 当前价跌破所有均线
+            val closeMetrics = Vector(
+              (k.close - shortMa.currentValue).signum,
+              (k.close - midMa.currentValue).signum,
+              (k.close - longMa.currentValue).signum
+            )
 
-            if (positionMgr.currentPosition.nonEmpty) {
-                val positionDirection = positionMgr.currentPosition.get.direction
-                // 平仓看持仓方向， 持有多单则跌破low平仓， 持有空单则
-                val closeThreshold    = if (positionDirection == 1) lastTick.low else lastTick.high
+            // 上一tick没有跌破所有均线
+            val lastTickMetrics = Vector(
+              (lastTick.close - shortMa.currentValue).signum,
+              (lastTick.close - midMa.currentValue).signum,
+              (lastTick.close - longMa.currentValue).signum
+            )
 
-                // ma 还未反转
-                if (positionDirection == maDirection) {
-                    // 必须是阴线， 阳线赚钱为什么要平仓
-                    if ((k.close - k.open) * positionDirection < 0) {
-                        if (
-                          (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < -0.4 * avgSize() // 止损
-                        ) {
-                            positionMgr.closeCurrent(k, "亏损0.4倍波动")
-                        } else if (
-                          // 收盘确认跌破均线， 无论盈亏都要平仓
-                          k.end &&                                 // 收盘
-                          (k.close - maSeq.data(0).value) * positionDirection < 0
-                        ) {
-                            positionMgr.closeCurrent(k, "收盘跌破均线")
-                        } else if (
-                          // 价格已跌破均线， 且破新低
-                          (k.open - maSeq.data(0).value) * positionDirection <= 0 &&                 // 开盘价在均线劣势侧
-                          (k.close - maSeq.data(0).value) * positionDirection <= 0 &&                // 价格在均线劣势侧
-                          (k.close - closeThreshold) * positionDirection < 0 &&                      // 破新低, K线边界时很容易出现反复开平仓
-                          (k.close - k.open).abs > avgSize() * 0.1 // 有效K线， 过滤了开盘即平仓的尴尬
-                        ) {
-                            positionMgr.closeCurrent(k, "价格未上均线， 反转")
-                        } else if (
-                          // 盘中跌破均线, 且处于亏损状态
-                          (k.open - maSeq.data(0).value) * positionDirection >= 0 &&  // 开盘价在均线优势侧
-                          (k.close - maSeq.data(0).value) * positionDirection <= 0 && // 价格在均线劣势侧
-                          (k.close - closeThreshold) * positionDirection < 0 &&       // 破新低, K线边界时很容易出现反复开平仓
-                          (k.close - k.open).abs > avgSize() * 0.1 &&                 // 有效K线， 过滤了开盘即平仓的尴尬
-                          (k.close - positionMgr.currentPosition.get.openAt) * positionDirection < 0 // 亏损
-                        ) {
-                            positionMgr.closeCurrent(k, "盘中跌破均线且处于亏损")
-                        }
-
-                    }
-
-                } else {
-                    // ma已调头， 则tick破均线平仓
-                    // 分两种情况
-                    // 1. 从上往下跌破均线， 直接平仓没毛病
-                    // 2. 从下往上突破再跌破，也应立即平仓, 大不了新高再开仓
-                    // 平仓后不创新高不开仓, 有效过滤临界震荡
-                    if (
-                      (k.close - maSeq.data(0).value) * positionDirection <= 0
-                      //   (k.close - closeThreshold) * positionDirection < 0 // 如果不创新低不平仓， 考虑反弹插针突破均线再回落， 会完整的吃回落的亏损
-                    ) {
-                        positionMgr.closeCurrent(k, "均线调头")
-                    }
-                }
+            val direction = if (closeMetrics.forall(_ == 1)) {
+                1
+            } else if (closeMetrics.forall(_ == -1)) {
+                -1
+            } else {
+                0
             }
 
             val as = avgSize()
-            // 考虑震荡， 只在均线顺势且价格合适的时候开仓
-            // 如果是均线来回调头的震荡， 亏损比较小、
-            // 稍微宽幅的震荡不会亏， 甚至还能赚钱
-
-            // 平仓后,再判断是否需要开仓
+            // macd 前一K方向
+            // 突破均线
             if (
-              positionMgr.currentPosition.isEmpty &&                      // 无持仓
-              maDirection != 0 &&                                         // 均线有方向
-              maSeq.historyMaDirection(1) == maDirection &&
-              maSeq.historyMaDirection(2) == maSeq.historyMaDirection(1) &&
-              (k.close - maSeq.data(0).value) * maDirection < as * 0.2 && // 现价不正偏离均线太多(成本优势)
-              (k.close - k.open) * maDirection > 0 &&                     // 阳线
-              (k.high - k.low) > avgSize() * 0.1 &&                         // 有效K线， 过滤了开盘即平仓的尴尬
-              (k.close - openThreshold) * maDirection > 0
+              positionMgr.currentPosition.isEmpty && // 无持仓
+              direction != 0 &&                      // 突破所有均线,且本tick刚突破
+              !lastCloseMetrics.forall(_ == direction) &&
+              !lastTickMetrics.forall(_ == direction)
             ) {
-                positionMgr.open(k, k.close, maDirection, None, None)
+                positionMgr.open(
+                  k,
+                  k.close,
+                  direction,
+                  Some(k.close - (1.5 * as) * direction),
+                  None,
+                  false
+                )
+                // 休息一分钟
+                openTime = LocalDateTime.now()
             }
         }
+
         lastTick = k
     }
 

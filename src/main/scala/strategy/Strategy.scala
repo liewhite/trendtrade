@@ -275,6 +275,10 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
             0
         }
     }
+    // kdj排列，金叉区间还是死叉区间
+    def kdjRange(offset: Int = 0): Int =  {
+        (data(offset).j - data(offset).d).signum
+    }
 
     // kdj 收敛至少两个周期
     def kdjDirection: Int = {

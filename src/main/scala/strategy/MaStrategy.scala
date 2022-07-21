@@ -13,11 +13,7 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 
-// 盘中突破均线
-// macd(1) 顺势
-// 反向突破均线+ macd(1)逆势 平仓
-// 跟踪止盈
-// ma20比较好， ma40的话跟踪止盈了就很难再上车了。
+
 class MaStrategy(
     symbol:          String,
     interval:        String,

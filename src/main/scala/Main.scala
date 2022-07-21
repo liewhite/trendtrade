@@ -14,6 +14,7 @@ import com.typesafe.scalalogging.Logger
 case class AppConfig(
     interval:         String,
     shortMa:          Int,
+    midMa:            Int,
     longMa:           Int,
     quoteSymbol:      String,
     leverage:         Int,
@@ -56,10 +57,11 @@ def start()              = {
     logger.info("create strategies for symbols")
 
     val strategies = symbols.map(s => {
-        val bot = MaStrategy(
+        val bot = MasStrategy(
           s.symbol,
           interval,
           cfg.shortMa,
+          cfg.midMa,
           cfg.longMa,
           cfg.maxHolds,
           binanceApi,

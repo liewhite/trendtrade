@@ -13,9 +13,6 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 
-// kdj 金叉 + macd底背离
-// 先出现金叉， 然后在盘中出现底背离时开单
-// 跟踪止盈
 class DepartStrategy(
     symbol:          String,
     interval:        String,
