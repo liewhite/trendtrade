@@ -87,6 +87,7 @@ class MasStrategy(
             }
         }
 
+        //  todo 远离均线才止盈
         //  利润 / 平均size, >0盈利， <0 亏损
         val profit           = (k.close - p.openAt) * p.direction
         val profitForAvgSize = profit / as
@@ -113,7 +114,7 @@ class MasStrategy(
             (maxSl(oldSl, p.openAt - as * 1.5 * p.direction, p.direction), "无浮盈")
         } else {
             // 应该不会执行到这里
-            (p.stopLoss.get, "无止损调节需求")
+            (oldSl, "无止损调节需求")
         }
         if (newSl != oldSl) {
             ntf.sendNotify(
@@ -224,6 +225,7 @@ class MasStrategy(
                 0
             }
 
+            val maValues = Vector(shortMa.currentValue, midMa.currentValue,longMa.currentValue)
             val as = avgSize()
             // macd 前一K方向
             // 突破均线
@@ -232,6 +234,7 @@ class MasStrategy(
               direction != 0 &&                      // 突破所有均线,且本tick刚突破
               !lastCloseMetrics.forall(_ == direction) &&
               !lastTickMetrics.forall(_ == direction)
+            //   (maValues.max - maValues.min) < 2 * as 
             ) {
                 positionMgr.open(
                   k,

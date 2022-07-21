@@ -23,7 +23,8 @@ case class AppConfig(
     apiSecret:        String,
     notifyWebhook:    String,
     heartBeatWebhook: String,
-    exceptionWebhook: String
+    exceptionWebhook: String,
+    symbolBl:         Option[Vector[String]]
 )
 
 val logger = Logger("main")
@@ -53,8 +54,12 @@ def start()              = {
 
     logger.info("get all busd symbols")
     val interval = cfg.interval
-    val symbols  = binanceApi.allSymbol().filter(_.symbol.endsWith(cfg.quoteSymbol))
+    val symbols  = binanceApi
+        .allSymbol()
+        .filter(_.symbol.endsWith(cfg.quoteSymbol))
+        // .filter(item => cfg.symbolBl.contains(item.symbol))
     logger.info("create strategies for symbols")
+    symbols.foreach(println)
 
     val strategies = symbols.map(s => {
         val bot = MasStrategy(
