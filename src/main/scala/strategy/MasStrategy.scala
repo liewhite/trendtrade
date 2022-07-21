@@ -165,9 +165,7 @@ class MasStrategy(
             return
         }
         val k          = klines.current
-        if (!k.end) {
-            return
-        }
+
         val pDirection = positionMgr.currentPosition.get.direction
         if (positionMgr.currentPosition.nonEmpty) {
             val metrics = Vector(
@@ -176,8 +174,12 @@ class MasStrategy(
               (k.close - longMa.currentValue) * pDirection <= 0
             )
             // 跌破两根均线平仓
-            if (metrics.count(identity) >= 2) {
-                positionMgr.closeCurrent(k, "跌破均线")
+            if (metrics.count(identity) >= 2 && k.end) {
+                positionMgr.closeCurrent(k, "收盘跌破两根均线")
+            }
+            // 盘中跌破3根均线平仓
+            if (metrics.count(identity) > 2 && k.end) {
+                positionMgr.closeCurrent(k, "盘中跌破所有跌破均线")
             }
         }
     }
