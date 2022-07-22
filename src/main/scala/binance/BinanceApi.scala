@@ -26,6 +26,7 @@ import java.time.LocalDateTime
 import java.time.Instant
 import java.time.ZoneId
 import notifier.Notify
+import cats.syntax.validated
 
 // import com.typesafe.lo
 
@@ -126,6 +127,9 @@ case class SymbolMetaResponseItem(
 case class SymbolMetaResponse(
     symbols: Vector[SymbolMetaResponseItem]
 )
+case class OpenInterestResponse(
+    sumOpenInterestValue: String
+)
 
 case class SymbolMeta(
     symbol:    String,
@@ -139,7 +143,13 @@ case class TradeResponse(
     time:   Long
 )
 
-trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, ntf: Notify, quoteSymbol: String) {
+trait BinanceApi(
+    val apiKey:    String,
+    val apiSecret: String,
+    val leverage:  Int,
+    ntf:           Notify,
+    quoteSymbol:   String
+) {
     val logger = Logger("trader")
 
     val binanceHttpBaseUrl = "https://fapi.binance.com"
@@ -330,7 +340,7 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
             .toVector
     }
 
-    def getPositions(symbol: String): Vector[PositionFromBinance]   = {
+    def getPositions(symbol: String): Vector[PositionFromBinance] = {
         val infoUrl   = uri"${binanceHttpBaseUrl}/fapi/v2/account"
         // 更改逐仓， 杠杆倍数
         val signedReq = signReq(infoUrl)
@@ -422,6 +432,22 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
         readySymbol.addOne(symbol, true)
     }
 
+    def getOpenInterest(symbol: String): BigDecimal = {
+        val response = quickRequest
+            .get(
+              uri"${binanceHttpBaseUrl}/futures/data/openInterestHist".addParam("symbol", symbol).addParam("period","5m").addParam("limit","1")
+            )
+            .header(
+              "X-MBX-APIKEY",
+              apiKey
+            )
+            .send(backend)
+
+        val res = response.body.fromJsonMust[Vector[OpenInterestResponse]]
+        val value = BigDecimal(res(0).sumOpenInterestValue)
+        value
+    }
+
     // (total, available)
     def getTotalBalance(): (BigDecimal, BigDecimal) = {
 
@@ -494,14 +520,14 @@ trait BinanceApi(val apiKey: String, val apiSecret: String, val leverage: Int, n
         if (tp.nonEmpty) {
             batchOrders = batchOrders.appended(
               Map(
-                "symbol"      -> symbol,
+                "symbol"           -> symbol,
                 "type"             -> "TAKE_PROFIT",
-                "side"        -> stopSide.toString(),
-                "reduceOnly"  -> "true",
+                "side"             -> stopSide.toString(),
+                "reduceOnly"       -> "true",
                 "stopPrice"        -> tp.get.toString,
-                "price"       -> tp.get.toString,
-                "quantity"    -> quantity.toString(),
-                "timeInForce" -> "GTE_GTC",
+                "price"            -> tp.get.toString,
+                "quantity"         -> quantity.toString(),
+                "timeInForce"      -> "GTE_GTC",
                 "newOrderRespType" -> "RESULT",
                 "workingType"      -> "CONTRACT_PRICE"
               )

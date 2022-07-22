@@ -251,7 +251,9 @@ class MasStrategy(
             }
         }
 
-        lastTick = k
+        if(!history) {
+            lastTick = k
+        }
     }
 
     def tick(k: Kline, history: Boolean = false): Unit = {

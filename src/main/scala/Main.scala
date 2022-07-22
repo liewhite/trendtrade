@@ -10,6 +10,7 @@ import io.github.liewhite.json.given
 import java.time.Duration
 import notifier.FeishuNotify
 import com.typesafe.scalalogging.Logger
+import cats.syntax.validated
 
 case class AppConfig(
     interval:         String,
@@ -55,14 +56,19 @@ def start()              = {
 
     logger.info("get all busd symbols")
     val interval = cfg.interval
-    val symbols  = binanceApi
+    val allSymbols  = binanceApi
         .allSymbol()
         .filter(_.symbol.endsWith(cfg.quoteSymbol))
         // .filter(item => cfg.symbolBl.contains(item.symbol))
     logger.info("create strategies for symbols")
-    symbols.foreach(println)
+    // 持仓小于1000w的忽略
+    val validSymbols = allSymbols.filter(item => {
+        val value = binanceApi.getOpenInterest(item.symbol)
+        value > 10000000
+    })
+    validSymbols.foreach(println)
 
-    val strategies = symbols.map(s => {
+    val strategies = validSymbols.map(s => {
         val bot = MasStrategy(
           s.symbol,
           interval,
