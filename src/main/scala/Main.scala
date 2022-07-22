@@ -25,7 +25,7 @@ case class AppConfig(
     notifyWebhook:    String,
     heartBeatWebhook: String,
     exceptionWebhook: String,
-    symbolBl:         Option[Vector[String]]
+    leastSupply:      BigDecimal
 )
 
 val logger = Logger("main")
@@ -50,17 +50,24 @@ def start()              = {
       cfg.apiSecret,
       cfg.leverage,
       heartBeatBot,
-      cfg.quoteSymbol
+      cfg.quoteSymbol,
+      cfg.leastSupply
     ) {}
     binanceApi.start()
 
     logger.info("get all busd symbols")
-    val interval = cfg.interval
-    val allSymbols  = binanceApi
+    val interval   = cfg.interval
+    val allSymbols = binanceApi
         .allSymbol()
         .filter(_.symbol.endsWith(cfg.quoteSymbol))
-        // .filter(item => cfg.symbolBl.contains(item.symbol))
+    // .filter(item => cfg.symbolBl.contains(item.symbol))
     logger.info("create strategies for symbols")
+    // binanceApi.sendOrder("BTCBUSD", TradeSide.SELL, 0.001, Some(21000), Some(18000))
+    // val positionMgr = PositionMgr("BTCBUSD", binanceApi, 10, notifyBot, exceptionBot)
+    // positionMgr.closeManually(-1, 0.001)
+    // println(binanceApi.getOpenInterest("ONEUSDT"))
+    // println(binanceApi.supply(1))
+
     // 持仓小于1000w的忽略
     val validSymbols = allSymbols.filter(item => {
         val value = binanceApi.getOpenInterest(item.symbol)
@@ -83,9 +90,6 @@ def start()              = {
         bot.start()
         bot
     })
-    // binanceApi.sendOrder("BTCBUSD", TradeSide.SELL, 0.001, Some(21000), Some(18000))
-    // val positionMgr = PositionMgr("BTCBUSD", binanceApi, 10, notifyBot, exceptionBot)
-    // positionMgr.closeManually(-1, 0.001)
 }
 
 @main def main: Unit = {

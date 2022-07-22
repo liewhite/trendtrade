@@ -148,12 +148,14 @@ trait BinanceApi(
     val apiSecret: String,
     val leverage:  Int,
     ntf:           Notify,
-    quoteSymbol:   String
+    quoteSymbol:   String,
+    totalSupply:   BigDecimal
 ) {
     val logger = Logger("trader")
 
-    val binanceHttpBaseUrl = "https://fapi.binance.com"
-    val streamUrl          = "wss://fstream.binance.com/ws"
+    val binanceHttpBaseUrl  = "https://fapi.binance.com"
+    val binanceHttpBaseUrl2 = "https://api.binance.com"
+    val streamUrl           = "wss://fstream.binance.com/ws"
 
     val readySymbol                          = CMap.empty[String, Boolean]
     val orders                               = concurrent.TrieMap.empty[Long, Boolean]
@@ -435,7 +437,10 @@ trait BinanceApi(
     def getOpenInterest(symbol: String): BigDecimal = {
         val response = quickRequest
             .get(
-              uri"${binanceHttpBaseUrl}/futures/data/openInterestHist".addParam("symbol", symbol).addParam("period","5m").addParam("limit","1")
+              uri"${binanceHttpBaseUrl}/futures/data/openInterestHist"
+                  .addParam("symbol", symbol)
+                  .addParam("period", "5m")
+                  .addParam("limit", "1")
             )
             .header(
               "X-MBX-APIKEY",
@@ -443,7 +448,7 @@ trait BinanceApi(
             )
             .send(backend)
 
-        val res = response.body.fromJsonMust[Vector[OpenInterestResponse]]
+        val res   = response.body.fromJsonMust[Vector[OpenInterestResponse]]
         val value = BigDecimal(res(0).sumOpenInterestValue)
         value
     }
@@ -660,6 +665,36 @@ trait BinanceApi(
         withTs.addParam("signature", sign)
     }
 
+    def supply(amount: BigDecimal) = {
+        val url       = uri"${binanceHttpBaseUrl2}/sapi/v1/futures/transfer"
+            .addParam("asset", quoteSymbol)
+            .addParam("amount", amount.toString())
+            .addParam("type", "1")
+        val signedReq = signReq(url)
+        val response  = quickRequest
+            .post(signedReq)
+            .header(
+              "X-MBX-APIKEY",
+              apiKey
+            )
+            .send(backend)
+        val res       = response.body
+        logger.info(s"补充保证金: ${response.code}, ${res}")
+        ntf.sendNotify(s"补充保证金: ${response.code}, ${res}")
+    }
+
+    // 补充合约账户余额
+    def autoSupply() = {
+        val (total, _) = getTotalBalance()
+        ntf.sendNotify(s"当前保证金: ${total},所需最低保证金: ${totalSupply}")
+        
+        // 如果保证金低于最低要求,补足
+        if (total < totalSupply * 0.9) {
+            // 取整
+            supply((totalSupply - total).longValue + 1)
+        }
+    }
+
     def startHeartBeatLoop() = {
         Future {
             while (true) {
@@ -674,6 +709,7 @@ trait BinanceApi(
                       })
                       .mkString("\n")
                 )
+                autoSupply()
                 Thread.sleep(30 * 1000)
             }
         }
