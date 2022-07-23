@@ -22,7 +22,6 @@ import okhttp3.Response
 import scala.concurrent.*
 import com.typesafe.scalalogging.Logger
 import strategy.Kline
-import java.time.LocalDateTime
 import java.time.Instant
 import java.time.ZoneId
 import notifier.Notify
@@ -162,7 +161,7 @@ trait BinanceApi(
     var listenKey: String                    = ""
     var streamReady: Promise[Boolean]        = Promise()
     var symbolMetas: Map[String, SymbolMeta] = Map.empty
-    val heartBeat                            = CMap.empty[String, LocalDateTime]
+    val heartBeat                            = CMap.empty[String, ZonedDateTime]
 
     def allSymbol(): Vector[SymbolMeta]        = {
         this.synchronized {
@@ -261,12 +260,12 @@ trait BinanceApi(
               override def onMessage(s: WebSocket, x: String): Unit = {
                   val res = x.fromJsonMust[StreamKlineResponse]
                   // 记录心跳时间
-                  heartBeat.update(symbol, LocalDateTime.now)
+                  heartBeat.update(symbol, ZonedDateTime.now)
                   // logger.info(s"market info: ${res}")
                   //   logger.info(s"${symbol}: ${res.k}")
                   klineCallback(
                     Kline(
-                      LocalDateTime.ofInstant(
+                      ZonedDateTime.ofInstant(
                         Instant.ofEpochMilli(((res.k.t / 1000).longValue + 1) * 1000),
                         ZoneId.systemDefault
                       ),
@@ -330,7 +329,7 @@ trait BinanceApi(
             ]]
             .map(item =>
                 Kline(
-                  LocalDateTime
+                  ZonedDateTime
                       .ofInstant(Instant.ofEpochMilli(item._1), ZoneId.systemDefault),
                   BigDecimal(item._2),
                   BigDecimal(item._4), // low
@@ -689,7 +688,7 @@ trait BinanceApi(
         ntf.sendNotify(s"当前保证金: ${total},所需最低保证金: ${totalSupply}")
         
         // 如果保证金低于最低要求,补足
-        if (total < totalSupply * 0.9) {
+        if (total < totalSupply * 0.99) {
             // 取整
             supply((totalSupply - total).longValue + 1)
         }
@@ -698,7 +697,7 @@ trait BinanceApi(
     def startHeartBeatLoop() = {
         Future {
             while (true) {
-                val now = LocalDateTime.now
+                val now = ZonedDateTime.now
                 ntf.sendNotify(
                   heartBeat
                       .map(item => {

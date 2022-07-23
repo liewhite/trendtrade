@@ -2,7 +2,6 @@ package strategy
 
 import scala.math
 import scala.collection.mutable
-import java.time.LocalDateTime
 import sttp.client3._
 import binance.BinanceApi
 import com.typesafe.scalalogging.Logger
@@ -12,6 +11,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
+import java.time.ZonedDateTime
 
 class DepartStrategy(
     symbol:          String,
@@ -132,7 +132,7 @@ class DepartStrategy(
         positionMgr.updateSl(Some(newSl))
     }
 
-    var openTime: LocalDateTime = null
+    var openTime: ZonedDateTime = null
 
     def checkSl(): Boolean = {
         if (positionMgr.hasPosition) {
@@ -164,7 +164,7 @@ class DepartStrategy(
             val strictKdjDirection = kdj.kdjCrossDirection(strict = true)
 
             if (
-              openTime != null && Duration.between(openTime, LocalDateTime.now()).getSeconds() < 60
+              openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
             ) {
                 return
             }
@@ -173,14 +173,14 @@ class DepartStrategy(
             def open() = {
                 if (
                   openTime != null && Duration
-                      .between(openTime, LocalDateTime.now())
+                      .between(openTime, ZonedDateTime.now())
                       .getSeconds() < 60
                 ) {} else {
                     // 1倍波动止损
                     val sl = k.close - as * 1.5 * macdDirection
                     positionMgr.open(k, k.close, macdDirection, Some(sl), None, false)
                     // 休息一分钟
-                    openTime = LocalDateTime.now()
+                    openTime = ZonedDateTime.now()
                 }
             }
 

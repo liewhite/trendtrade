@@ -1,15 +1,15 @@
 package strategy
 
-import java.time.LocalDateTime
 import scala.collection.mutable
 import cats.instances.int
+import java.time.ZonedDateTime
 
 trait IsEnd {
     def isEnd: Boolean
 }
 
 case class Kline(
-    datetime: LocalDateTime,
+    datetime: ZonedDateTime,
     open:     BigDecimal,
     low:      BigDecimal,
     high:     BigDecimal,
@@ -23,10 +23,10 @@ case class Kline(
 
 case class Position(
     quantity:     BigDecimal,
-    openTime:     LocalDateTime,
+    openTime:     ZonedDateTime,
     direction:    Int,
     openAt:       BigDecimal,
-    closeTime:    Option[LocalDateTime] = None,
+    closeTime:    Option[ZonedDateTime] = None,
     closeAt:      Option[BigDecimal] = None,
     stopLoss:     Option[BigDecimal] = None,
     targetProfit: Option[BigDecimal] = None
@@ -98,7 +98,7 @@ class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
 }
 
 case class Macd(
-    datetime: LocalDateTime,
+    datetime: ZonedDateTime,
     ema12:    BigDecimal,
     ema26:    BigDecimal,
     diff:     BigDecimal,

@@ -5,7 +5,7 @@ import notifier.Notify
 import com.typesafe.scalalogging.Logger
 import binance.TradeSide
 import java.util.concurrent.TimeoutException
-import java.time.LocalDateTime
+import java.time.ZonedDateTime
 
 class PositionMgr(
     symbol:          String,
@@ -55,7 +55,7 @@ class PositionMgr(
         currentPosition = Some(
           Position(
             p.positionAmt.abs,
-            LocalDateTime.now,
+            ZonedDateTime.now,
             direction,
             p.entryPrice,
             None,

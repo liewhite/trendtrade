@@ -2,7 +2,6 @@ package strategy
 
 import scala.math
 import scala.collection.mutable
-import java.time.LocalDateTime
 import sttp.client3._
 import binance.BinanceApi
 import com.typesafe.scalalogging.Logger

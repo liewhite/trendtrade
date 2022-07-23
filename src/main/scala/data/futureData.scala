@@ -2,9 +2,8 @@ package data
 
 import sttp.client3.okhttp.quick._
 import io.github.liewhite.json.{*, given}
-import java.time.LocalDateTime
-import java.time.LocalDate
 import strategy.Kline
+import java.time.ZonedDateTime
 
 case class HttpKline(
     datetime: String,
@@ -26,7 +25,7 @@ def getSymbol5minK(symbol: String): List[Kline] = {
         .fromJsonMust[List[HttpKline]]
         .map(item =>
             Kline(
-              LocalDateTime.parse(item.datetime.replace(" ", "T")),
+              ZonedDateTime.parse(item.datetime.replace(" ", "T")),
               item.open,
               item.high,
               item.low,

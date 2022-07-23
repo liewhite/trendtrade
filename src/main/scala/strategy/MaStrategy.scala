@@ -2,7 +2,6 @@ package strategy
 
 import scala.math
 import scala.collection.mutable
-import java.time.LocalDateTime
 import sttp.client3._
 import binance.BinanceApi
 import com.typesafe.scalalogging.Logger
@@ -12,6 +11,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
+import java.time.ZonedDateTime
 
 
 class MaStrategy(
@@ -152,7 +152,7 @@ class MaStrategy(
         avgEntitySize
     }
 
-    var openTime: LocalDateTime = null
+    var openTime: ZonedDateTime = null
     var lastTick: Kline         = null
 
     def checkClose(): Unit = {
@@ -186,7 +186,7 @@ class MaStrategy(
             val macdDirection = macd.macdHistoryDirection(1)
 
             if (
-              openTime != null && Duration.between(openTime, LocalDateTime.now()).getSeconds() < 60
+              openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
             ) {
                 return
             }
@@ -209,7 +209,7 @@ class MaStrategy(
                   false
                 )
                 // 休息一分钟
-                openTime = LocalDateTime.now()
+                openTime = ZonedDateTime.now()
             }
         }
 

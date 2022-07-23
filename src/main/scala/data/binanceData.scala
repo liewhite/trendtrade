@@ -3,7 +3,6 @@ package data
 import sttp.client3.okhttp.quick._
 import io.github.liewhite.json.{*, given}
 import strategy.Kline
-import java.time.LocalDateTime
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -42,7 +41,7 @@ def getLatest500K(symbol: String, interval: String): List[Kline] = {
         ]]
         .map(item =>
             Kline(
-              LocalDateTime
+              ZonedDateTime
                   .ofInstant(Instant.ofEpochMilli(item._1), ZoneId.systemDefault),
               BigDecimal(item._2),
               BigDecimal(item._3),
@@ -87,7 +86,7 @@ def getSymbolK(symbol: String, interval: String, limit: Int = 1500): List[Kline]
         ]]
         .map(item =>
             Kline(
-              LocalDateTime
+              ZonedDateTime
                   .ofInstant(Instant.ofEpochMilli(item._1), ZoneId.systemDefault),
               BigDecimal(item._2),
               BigDecimal(item._4),

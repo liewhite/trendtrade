@@ -2,7 +2,6 @@ package strategy
 
 import scala.math
 import scala.collection.mutable
-import java.time.LocalDateTime
 import sttp.client3._
 import binance.BinanceApi
 import com.typesafe.scalalogging.Logger
@@ -12,6 +11,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
+import java.time.ZonedDateTime
 
 // 突破所有均线开仓
 // 收盘回撤两条均线平仓
@@ -156,7 +156,7 @@ class MasStrategy(
         avgEntitySize
     }
 
-    var openTime: LocalDateTime = null
+    var openTime: ZonedDateTime = null
     var lastTick: Kline         = null
 
     // 收盘跌破两根均线平仓
@@ -192,7 +192,7 @@ class MasStrategy(
             checkSl()
             checkClose()
             if (
-              openTime != null && Duration.between(openTime, LocalDateTime.now()).getSeconds() < 60
+              openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
             ) {
                 return
             }
@@ -247,7 +247,7 @@ class MasStrategy(
                   false
                 )
                 // 休息一分钟
-                openTime = LocalDateTime.now()
+                openTime = ZonedDateTime.now()
             }
         }
 

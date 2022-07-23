@@ -1,8 +1,6 @@
 import scala.collection.mutable
 import sttp.client3.okhttp.quick._
 import io.github.liewhite.json.{*, given}
-import java.time.LocalDateTime
-import java.time.LocalDate
 import strategy.*
 import binance.*
 import io.github.liewhite.config.loadConfig
