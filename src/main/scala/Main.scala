@@ -72,14 +72,15 @@ def start()              = {
         value > 10000000
     })
     validSymbols.foreach(println)
+    // val validSymbols = Vector(SymbolMeta("BTCUSDT", 0.01, 0.01))
 
     val strategies = validSymbols.map(s => {
-        val bot = MasStrategy(
+        val bot = MacdStrategy(
           s.symbol,
-          interval,
-          cfg.shortMa,
-          cfg.midMa,
-          cfg.longMa,
+        //   interval,
+        //   cfg.shortMa,
+        //   cfg.midMa,
+        //   cfg.longMa,
           cfg.maxHolds,
           binanceApi,
           notifyBot,
