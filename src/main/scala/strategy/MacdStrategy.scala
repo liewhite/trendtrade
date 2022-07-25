@@ -15,8 +15,11 @@ import java.time.ZoneOffset
 import java.time.ZonedDateTime
 
 // 多周期macd共振。
-// 1，5，15, 1H, 4H， 大于等于4个共振开仓， 小于3个共振平仓
-// 开仓条件必须包括1min macd(开仓即浮盈)
+// 小周期开始转势， 带动大周期反转
+// 大周期限制小周期幅度
+// 1，5，15, 1H, 4H， 1 + 3 个周期反手开仓
+// 大K线引发开仓， 随后拉回引起亏损( 只响应小幅度K线信号 )
+// 跟踪止盈
 class MacdStrategy(
     symbol:          String,
     maxHolds:        Int,
@@ -99,7 +102,7 @@ class MacdStrategy(
         val p     = positionMgr.currentPosition.get
         // load position 的时候没有止损
         val oldSl = p.stopLoss match {
-            case None    => p.openAt - p.direction * as * 1.5
+            case None    => p.openAt - p.direction * as * 1
             case Some(o) => o
         }
 
@@ -138,7 +141,7 @@ class MacdStrategy(
             // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小
             // 反之， 波动大， 止损就大， 跟随市场
-            (maxSl(oldSl, p.openAt - as * 1.5 * p.direction, p.direction), "无浮盈")
+            (maxSl(oldSl, p.openAt - as * 1 * p.direction, p.direction), "无浮盈")
         } else {
             // 应该不会执行到这里
             (p.stopLoss.get, "无止损调节需求")
@@ -167,61 +170,53 @@ class MacdStrategy(
         }
     }
 
+    def mergeK(ks: Seq[Kline], end: Boolean = false): Kline = {
+        Kline(
+          ks.last.datetime,
+          ks.last.open,
+          ks.map(_.low).min,
+          ks.map(_.high).max,
+          ks.head.close,
+          ks.map(_.vol).sum,
+          end
+        )
+    }
+
+    // 聚合k线
+    def kn(minInterval: Int): Kline = {
+        val k               = klines1.current
+        val startSecondsOfK = k.datetime.toInstant().toEpochMilli() / 1000
+        // 计算当前一分钟线的结束时间
+        // mod 得到n分钟线从开始到现在的秒数
+        val mod             = (startSecondsOfK + 60) % (minInterval * 60)
+        // 如果mod为0， 说明当前一分钟线结束对应n分钟线的结束
+        if (mod == 0) {
+            mergeK(klines1.data.slice(0, minInterval).toSeq, k.end)
+        } else {
+            mergeK(klines1.data.slice(0, (mod / 60).intValue).toSeq, false)
+        }
+    }
+
+    def tickN(k: Kline, n: Int, ks: KlineMetric, macdM: MacdMetric) = {
+        val knResult = kn(n)
+        // logger.info(s"${symbol} k${n}: ${knResult}")
+        ks.tick(knResult)
+        macdM.tick(knResult)
+    }
+
     def metricTick(k: Kline) = {
         val startSecondsOfK = k.datetime.toInstant().toEpochMilli() / 1000
+        // logger.info(s"${symbol} ts: ${startSecondsOfK}")
         klines1.tick(k)
         macd1.tick(k)
-
-        val k5 = if ((startSecondsOfK + 60) % (5 * 60) == 0) {
-            k
-        } else {
-            k.copy(end = false)
-        }
-        klines5.tick(k5)
-        macd5.tick(k5)
-
-        val k15 = if ((startSecondsOfK + 60) % (15 * 60) == 0) {
-            k
-        } else {
-            k.copy(end = false)
-        }
-
-        klines15.tick(k15)
-        macd15.tick(k15)
-
-        val k60 = if ((startSecondsOfK + 60) % (60 * 60) == 0) {
-            k
-        } else {
-            k.copy(end = false)
-        }
-        klines60.tick(k60)
-        macd60.tick(k60)
-
-        val k240 = if ((startSecondsOfK + 60) % (240 * 60) == 0) {
-            k
-        } else {
-            k.copy(end = false)
-        }
-        klines240.tick(k240)
-        macd240.tick(k240)
+        tickN(k, 5, klines5, macd5)
+        tickN(k, 15, klines15, macd15)
+        tickN(k, 60, klines60, macd60)
+        tickN(k, 240, klines240, macd240)
     }
 
-    def checkClose() = {
-        if (positionMgr.hasPosition) {
-            val macds = Vector(
-              macd5.macdDirection,
-              macd15.macdDirection,
-              macd60.macdDirection,
-              macd240.macdDirection
-            )
-            if (macds.count(_ == positionMgr.currentPosition.get.direction) < 3) {
-                positionMgr.closeCurrent(klines1.current, s"macd: ${macds.mkString(",")}")
-            }
-        }
-    }
-
-    var openTime: ZonedDateTime = null
-    var lastTick: Kline         = null
+    // var openTime: ZonedDateTime = null
+    // var lastTick: Kline         = null
 
     def tick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
@@ -235,48 +230,63 @@ class MacdStrategy(
         if (klines240.data.length < 26) {
             return
         }
+
         updateSl()
         checkSl()
-        checkClose()
-
-        if (openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60) {
+        if(!k.end) {
             return
         }
 
-        if (!positionMgr.hasPosition) {
-            val as       = avgSize()
-            val macds    = Vector(
-              macd5.macdDirection,
-              macd15.macdDirection,
-              macd60.macdDirection,
-              macd240.macdDirection
-            )
-            val preMacds = Vector(
-              macd1.macdDirection,
-              macd5.macdDirection,
-              macd15.macdDirection,
-              macd60.macdDirection,
-              macd240.macdDirection
-            )
+        // if (openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60) {
+        //     return
+        // }
 
-            if (
-              macds.count(_ == macd1.macdDirection) >= 3 && preMacds.count(
-                _ == macd1.macdDirection
-              ) < 4
-            ) {
-                logger.info(s"${symbol} pre macds: ${preMacds}, current: ${macds}")
-                positionMgr.open(
-                  k,
-                  k.close,
-                  macd1.macdDirection,
-                  Some(k.close - (1.5 * as) * macd1.macdDirection),
-                  None,
-                  false
-                )
-                // 休息一分钟
-                openTime = ZonedDateTime.now()
+        val macds     = Vector(
+          macd1.macdDirection(),
+          macd5.macdDirection(),
+          macd15.macdDirection(),
+          macd60.macdDirection(),
+          macd240.macdDirection()
+        )
+
+        val preMacds1 = Vector(
+          macd1.macdDirection(1),
+          macd5.macdDirection(1),
+          macd15.macdDirection(1),
+          macd60.macdDirection(1),
+          macd240.macdDirection(1)
+        )
+
+        val preMacds2 = Vector(
+          macd1.macdDirection(2),
+          macd5.macdDirection(2),
+          macd15.macdDirection(2),
+          macd60.macdDirection(2),
+          macd240.macdDirection(2)
+        )
+
+        // 当前有3个周期顺1分钟周期
+        if (
+          macds.count(_ == macds(0)) > 3 &&
+          !(preMacds1.count(_ == macds(0)) > 3) &&
+          !(preMacds2.count(_ == macds(0)) > 3)
+        ) {
+            if(positionMgr.hasPosition && positionMgr.currentPosition.get.direction != macds(0)) {
+                positionMgr.closeCurrent(k, "平仓反手")
             }
+            // 可能会亏损后导致开仓额度不足
+            val as = avgSize()
+            positionMgr.open(
+              k,
+              k.close,
+              macds(0),
+              Some(k.close - (1 * as) * macd1.macdDirection()),
+              None,
+              false
+            )
+            // 休息一分钟
+            // openTime = ZonedDateTime.now()
         }
-        lastTick = k
+        // lastTick = k
     }
 }

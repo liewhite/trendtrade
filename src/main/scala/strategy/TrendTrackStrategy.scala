@@ -165,7 +165,7 @@ class TrendTrackStrategy(
             updateSl()
             checkSl()
 
-            val macdDirection      = macd.macdDirection
+            val macdDirection      = macd.macdDirection()
             val kdjDirection       = kdj.kdjCrossDirection()
             // 低位金叉， 高位死叉
             val strictKdjDirection = kdj.kdjCrossDirection(strict = true)

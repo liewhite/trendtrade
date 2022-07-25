@@ -14,7 +14,6 @@ import notifier.Notify
 import java.time.ZonedDateTime
 
 // 突破所有均线开仓
-// 收盘回撤两条均线平仓
 // 结合浮动止盈
 class MasStrategy(
     symbol:          String,
@@ -71,7 +70,7 @@ class MasStrategy(
         val p     = positionMgr.currentPosition.get
         // load position 的时候没有止损
         val oldSl = p.stopLoss match {
-            case None    => p.openAt - p.direction * as * 1.5
+            case None    => p.openAt - p.direction * as * 1
             case Some(o) => o
         }
 
@@ -111,7 +110,7 @@ class MasStrategy(
             // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小
             // 反之， 波动大， 止损就大， 跟随市场
-            (maxSl(oldSl, p.openAt - as * 1.5 * p.direction, p.direction), "无浮盈")
+            (maxSl(oldSl, p.openAt - as * 1 * p.direction, p.direction), "无浮盈")
         } else {
             // 应该不会执行到这里
             (oldSl, "无止损调节需求")
@@ -164,7 +163,8 @@ class MasStrategy(
         if (!positionMgr.hasPosition) {
             return
         }
-        val k          = klines.current
+
+        val k = klines.current
 
         val pDirection = positionMgr.currentPosition.get.direction
         if (positionMgr.currentPosition.nonEmpty) {
@@ -190,7 +190,7 @@ class MasStrategy(
         if (!history && klines.data.length >= 60 && lastTick != null) {
             updateSl()
             checkSl()
-            checkClose()
+            // checkClose()
             if (
               openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
             ) {
@@ -227,22 +227,23 @@ class MasStrategy(
                 0
             }
 
-            val maValues = Vector(shortMa.currentValue, midMa.currentValue,longMa.currentValue)
-            val as = avgSize()
-            // macd 前一K方向
+            val maValues = Vector(shortMa.currentValue, midMa.currentValue, longMa.currentValue)
+            val as       = avgSize()
             // 突破均线
             if (
-              positionMgr.currentPosition.isEmpty && // 无持仓
+            //   positionMgr.currentPoition.isEmpty && // 无持仓
               direction != 0 &&                      // 突破所有均线,且本tick刚突破
               !lastCloseMetrics.forall(_ == direction) &&
               !lastTickMetrics.forall(_ == direction)
-            //   (maValues.max - maValues.min) < 2 * as 
             ) {
+                if(positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction) {
+                    positionMgr.closeCurrent(k, "反手")
+                }
                 positionMgr.open(
                   k,
                   k.close,
                   direction,
-                  Some(k.close - (1.5 * as) * direction),
+                  Some(k.close - (1 * as) * direction),
                   None,
                   false
                 )
@@ -251,7 +252,7 @@ class MasStrategy(
             }
         }
 
-        if(!history) {
+        if (!history) {
             lastTick = k
         }
     }

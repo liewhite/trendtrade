@@ -266,7 +266,8 @@ trait BinanceApi(
                   klineCallback(
                     Kline(
                       ZonedDateTime.ofInstant(
-                        Instant.ofEpochMilli(((res.k.t / 1000).longValue + 1) * 1000),
+                        // Instant.ofEpochMilli(((res.k.t / 1000).longValue + 1) * 1000),
+                        Instant.ofEpochMilli(((res.k.t / 1000).longValue) * 1000),
                         ZoneId.systemDefault
                       ),
                       BigDecimal(res.k.o),
@@ -299,10 +300,10 @@ trait BinanceApi(
         )
     }
 
-    def getHistory(symbol: String, interval: String): Vector[Kline] = {
+    def getHistory(symbol: String, interval: String, limit: Int = 250): Vector[Kline] = {
         val response = quickRequest
             .get(
-              uri"${binanceHttpBaseUrl}/fapi/v1/continuousKlines?limit=1500&pair=${symbol}&contractType=PERPETUAL&interval=${interval}"
+              uri"${binanceHttpBaseUrl}/fapi/v1/continuousKlines?limit=${limit}&pair=${symbol}&contractType=PERPETUAL&interval=${interval}"
             )
             .header(
               "X-MBX-APIKEY",

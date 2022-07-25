@@ -159,7 +159,7 @@ class MaStrategy(
         if(!positionMgr.hasPosition) {
             return
         }
-        val macdDirection = macd.macdHistoryDirection(1)
+        val macdDirection = macd.macdDirection(1)
         val k             = klines.current
         val pDirection    = positionMgr.currentPosition.get.direction
         // 有持仓， k线收盘
@@ -183,7 +183,7 @@ class MaStrategy(
             checkSl()
             checkClose()
 
-            val macdDirection = macd.macdHistoryDirection(1)
+            val macdDirection = macd.macdDirection(1)
 
             if (
               openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60

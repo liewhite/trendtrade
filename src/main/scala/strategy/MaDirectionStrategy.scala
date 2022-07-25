@@ -13,19 +13,24 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-class DepartStrategy(
+
+// 均线方向策略
+// 均线族方向一致
+// 价格里最远的均线距离不超过K
+class MaDirectionStrategy(
     symbol:          String,
     interval:        String,
-    maInterval:      Int,
+    shortMaInterval: Int, // 短均线
+    longMaInterval:  Int, // 长均线
     maxHold:         Int,
     trader:          BinanceApi,
     ntf:             Notify,
     exceptionNotify: Notify
 ) {
     val klines      = KlineMetric()
-    val ma          = MaMetric(klines, maInterval)
+    val shortMa     = MaMetric(klines, shortMaInterval)
+    val longMa      = MaMetric(klines, longMaInterval)
     val macd        = MacdMetric(klines)
-    val kdj         = KdjMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
 
     val logger = Logger("strategy")
@@ -50,25 +55,9 @@ class DepartStrategy(
 
     def metricTick(k: Kline) = {
         klines.tick(k)
-        kdj.tick(k)
+        shortMa.tick(k)
+        longMa.tick(k)
         macd.tick(k)
-        ma.tick(k)
-    }
-
-    // 除当前K外的最近k线平均大小
-    def avgSize(): BigDecimal = {
-        val entities = klines.data
-            .slice(1, 21)
-            .map(item => {
-                if (item.high == item.low) {
-                    BigDecimal(0)
-                } else {
-                    (item.high - item.low).abs
-                }
-            })
-
-        val avgEntitySize = entities.sum / entities.length
-        avgEntitySize
     }
 
     // 更新止损位
@@ -76,11 +65,13 @@ class DepartStrategy(
         if (!positionMgr.hasPosition) {
             return
         }
+
         val k     = klines.data(0)
         val as    = avgSize()
         val p     = positionMgr.currentPosition.get
+        // load position 的时候没有止损
         val oldSl = p.stopLoss match {
-            case None => p.openAt - p.direction * as * 1.5
+            case None    => p.openAt - p.direction * as * 1.5
             case Some(o) => o
         }
 
@@ -132,15 +123,13 @@ class DepartStrategy(
         positionMgr.updateSl(Some(newSl))
     }
 
-    var openTime: ZonedDateTime = null
-
     def checkSl(): Boolean = {
         if (positionMgr.hasPosition) {
             val k            = klines.data(0)
             val p            = positionMgr.currentPosition.get
             val currentPrice = k.close
             if ((currentPrice - p.stopLoss.get) * p.direction < 0) {
-                positionMgr.closeCurrent(k, "触发止损位平仓")
+                positionMgr.closeCurrent(k, "触发移动止盈平仓")
                 true
             } else {
                 false
@@ -150,18 +139,54 @@ class DepartStrategy(
         }
     }
 
+    // 除当前K外的最近k线平均大小
+    def avgSize(): BigDecimal = {
+        val entities = klines.data
+            .slice(1, 21)
+            .map(item => {
+                if (item.high == item.low) {
+                    BigDecimal(0)
+                } else {
+                    (item.high - item.low).abs
+                }
+            })
+
+        val avgEntitySize = entities.sum / entities.length
+        avgEntitySize
+    }
+
+    var openTime: ZonedDateTime = null
+    var lastTick: Kline         = null
+
+    def checkClose(): Unit = {
+        if(!positionMgr.hasPosition) {
+            return
+        }
+        val macdDirection = macd.macdDirection(1)
+        val k             = klines.current
+        val pDirection    = positionMgr.currentPosition.get.direction
+        // 有持仓， k线收盘
+        // 1. 同一K突破再回撤过均线，如果macd转势, 下一K平仓
+        // 2. macd已转势， 跌破均线即平仓
+        if (positionMgr.currentPosition.nonEmpty) {
+            if (
+              (macdDirection != pDirection &&
+              (k.close - shortMa.currentValue) * pDirection < 0) // 价格在均线劣势侧且仓位逆势了
+            ) {
+                positionMgr.closeCurrent(k, "跌破均线")
+            }
+        }
+    }
+
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
-        if (!history && klines.data.length >= 20) {
-            // 更新止损位
+        if (!history && klines.data.length >= 20 && lastTick != null) {
             updateSl()
             checkSl()
+            checkClose()
 
-            val macdDirection      = macd.macdDirection
-            val kdjDirection       = kdj.kdjCrossDirection()
-            // 低位金叉， 高位死叉
-            val strictKdjDirection = kdj.kdjCrossDirection(strict = true)
+            val macdDirection = macd.macdDirection(1)
 
             if (
               openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
@@ -169,56 +194,29 @@ class DepartStrategy(
                 return
             }
 
-            val as     = avgSize()
-            def open() = {
-                if (
-                  openTime != null && Duration
-                      .between(openTime, ZonedDateTime.now())
-                      .getSeconds() < 60
-                ) {} else {
-                    // 1倍波动止损
-                    val sl = k.close - as * 1.5 * macdDirection
-                    positionMgr.open(k, k.close, macdDirection, Some(sl), None, false)
-                    // 休息一分钟
-                    openTime = ZonedDateTime.now()
-                }
-            }
-
-            // 开盘的时候或者收盘的时候才开仓
-            // 均线顺势逆势偏移范围不同
-            val maOffset =
-            //      if (ma.maDirection == macdDirection) {
-            //     0.2 * as
-            // } else {
-            //     -2 * as
-            // }
-
+            val as = avgSize()
+            // macd 前一K方向
+            // 突破均线
             if (
-              k.end &&
-              macdDirection != 0 &&
-              kdjDirection == macdDirection
+              positionMgr.currentPosition.isEmpty && 
+              macdDirection != 0 &&                  
+              (lastTick.close - shortMa.currentValue) * macdDirection < 0 && 
+              (k.close - shortMa.currentValue) * macdDirection >= 0
             ) {
-                if (
-                  positionMgr.currentPosition.nonEmpty &&
-                  positionMgr.currentPosition.get.direction == -macdDirection
-                ) {
-                    // 出现反向金叉死叉， 平仓但暂不反手
-                    positionMgr.closeCurrent(k, "形态反转,平仓")
-                }
-
-                // 没有仓位
-                // kdj严格金叉
-                // 均线跟kdj同向加速
-                if (
-                  positionMgr.currentPosition.isEmpty &&
-                  strictKdjDirection == kdjDirection &&
-                  ((ma.data(0).value - ma.data(1).value) - (ma.data(1).value - ma.data(2).value)).signum == kdjDirection &&
-                  ((ma.data(1).value - ma.data(2).value) - (ma.data(2).value - ma.data(3).value)).signum == kdjDirection
-                ) {
-                    open()
-                }
+                positionMgr.open(
+                  k,
+                  k.close,
+                  macdDirection,
+                  Some(k.close - (1.5 * as) * macdDirection),
+                  None,
+                  false
+                )
+                // 休息一分钟
+                openTime = ZonedDateTime.now()
             }
         }
+
+        lastTick = k
     }
 
     def tick(k: Kline, history: Boolean = false): Unit = {

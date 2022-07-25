@@ -156,8 +156,8 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
         Some(v.copy(cross = cross))
     }
 
-    def macdDirection: Int = {
-        (data(0).bar - data(1).bar).signum
+    def barDirection(offset: Int = 0): Int = {
+        data(offset).bar.signum
     }
 
     def macdCross(offset: Int = 0): Int = {
@@ -170,7 +170,7 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
         }
     }
 
-    def macdHistoryDirection(offset: Int = 0): Int = {
+    def macdDirection(offset: Int = 0): Int = {
         (data(offset).bar - data(offset + 1).bar).signum
     }
 
