@@ -15,8 +15,7 @@ import java.time.ZoneOffset
 import java.time.ZonedDateTime
 
 // 多周期macd共振。
-// 小周期开始转势， 带动大周期反转
-// 大周期限制小周期幅度
+// 颜色共振， 方向共振。
 // 1，5，15, 1H, 4H， 1 + 3 个周期反手开仓
 // 大K线引发开仓， 随后拉回引起亏损( 只响应小幅度K线信号 )
 // 跟踪止盈
@@ -77,7 +76,7 @@ class MacdStrategy(
     // 除当前K外的最近k线平均大小
     def avgSize(): BigDecimal = {
         // 以15min线作为跟踪止盈基准
-        val entities = klines15.data
+        val entities = klines60.data
             .slice(1, 21)
             .map(item => {
                 if (item.high == item.low) {
@@ -102,7 +101,7 @@ class MacdStrategy(
         val p     = positionMgr.currentPosition.get
         // load position 的时候没有止损
         val oldSl = p.stopLoss match {
-            case None    => p.openAt - p.direction * as * 1
+            case None    => p.openAt - p.direction * as * 0.5
             case Some(o) => o
         }
 
@@ -141,10 +140,10 @@ class MacdStrategy(
             // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小
             // 反之， 波动大， 止损就大， 跟随市场
-            (maxSl(oldSl, p.openAt - as * 1 * p.direction, p.direction), "无浮盈")
+            (maxSl(oldSl, p.openAt - as * 0.5 * p.direction, p.direction), "无浮盈")
         } else {
             // 应该不会执行到这里
-            (p.stopLoss.get, "无止损调节需求")
+            (oldSl, "无止损调节需求")
         }
         if (newSl != oldSl) {
             ntf.sendNotify(
@@ -215,7 +214,7 @@ class MacdStrategy(
         tickN(k, 240, klines240, macd240)
     }
 
-    // var openTime: ZonedDateTime = null
+    var openTime: ZonedDateTime = null
     // var lastTick: Kline         = null
 
     def tick(k: Kline, history: Boolean = false): Unit = {
@@ -233,68 +232,61 @@ class MacdStrategy(
 
         updateSl()
         checkSl()
-        if(!k.end) {
-            return
-        }
 
-        // if (openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60) {
-        //     return
-        // }
+        // macd 颜色 共振
+        // macd 方向 共振
 
-        val macd_1 = Vector(
-          macd1.macdDirection(0),
-          macd1.macdDirection(1),
-          macd1.macdDirection(2),
-        )
-        val macd_5 = Vector(
+        // val macdColors = Vector(
+        //   macd1.barDirection(),
+        //   macd5.barDirection(),
+        //   macd15.barDirection(),
+        //   macd60.barDirection(),
+        // )
 
-        )
-
-        val macds     = Vector(
+        val macdDirections  = Vector(
           macd1.macdDirection(),
           macd5.macdDirection(),
           macd15.macdDirection(),
           macd60.macdDirection(),
-          macd240.macdDirection()
+          macd240.macdDirection(),
         )
-
-        val preMacds1 = Vector(
+        val macd1Directions = Vector(
           macd1.macdDirection(1),
           macd5.macdDirection(1),
           macd15.macdDirection(1),
           macd60.macdDirection(1),
-          macd240.macdDirection(1)
+          macd240.macdDirection(1),
         )
 
-        val preMacds2 = Vector(
-          macd1.macdDirection(2),
-          macd5.macdDirection(2),
-          macd15.macdDirection(2),
-          macd60.macdDirection(2),
-          macd240.macdDirection(2)
-        )
-
-        // 当前有3个周期顺1分钟周期
         if (
-          macds.count(_ == macds(0)) > 3 &&
-          !(preMacds1.count(_ == macds(0)) > 3) &&
-          !(preMacds2.count(_ == macds(0)) > 3)
+          macdDirections.forall(_ == macdDirections(0)) &&
+          !macd1Directions.forall(_ == macdDirections(0))
         ) {
-            if(positionMgr.hasPosition && positionMgr.currentPosition.get.direction != macds(0)) {
+            if (
+              positionMgr.hasPosition && positionMgr.currentPosition.get.direction != macdDirections(
+                0
+              )
+            ) {
                 positionMgr.closeCurrent(k, "平仓反手")
+            }
+
+            if (
+              openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
+            ) {
+                return
             }
             // 可能会亏损后导致开仓额度不足
             val as = avgSize()
             positionMgr.open(
               k,
               k.close,
-              macds(0),
-              Some(k.close - (1 * as) * macd1.macdDirection()),
+              macdDirections(0),
+              Some(k.close - (0.5 * as) * macdDirections(0)),
               None,
               false
             )
             // 休息一分钟
-            // openTime = ZonedDateTime.now()
+            openTime = ZonedDateTime.now()
         }
         // lastTick = k
     }
