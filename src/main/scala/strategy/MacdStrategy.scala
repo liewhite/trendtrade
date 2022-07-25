@@ -38,6 +38,7 @@ class MacdStrategy(
     val macd60      = MacdMetric(klines60)
     val macd240     = MacdMetric(klines240)
     val logger      = Logger("strategy")
+    val slFactor    = 1
 
     val positionMgr = PositionMgr(symbol, trader, maxHolds, ntf, exceptionNotify)
 
@@ -101,7 +102,7 @@ class MacdStrategy(
         val p     = positionMgr.currentPosition.get
         // load position 的时候没有止损
         val oldSl = p.stopLoss match {
-            case None    => p.openAt - p.direction * as * 0.5
+            case None    => p.openAt - p.direction * as * slFactor
             case Some(o) => o
         }
 
@@ -140,7 +141,7 @@ class MacdStrategy(
             // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小
             // 反之， 波动大， 止损就大， 跟随市场
-            (maxSl(oldSl, p.openAt - as * 0.5 * p.direction, p.direction), "无浮盈")
+            (maxSl(oldSl, p.openAt - as * slFactor * p.direction, p.direction), "无浮盈")
         } else {
             // 应该不会执行到这里
             (oldSl, "无止损调节需求")
@@ -231,7 +232,6 @@ class MacdStrategy(
         }
 
         updateSl()
-        checkSl()
 
         // macd 颜色 共振
         // macd 方向 共振
@@ -244,24 +244,27 @@ class MacdStrategy(
         // )
 
         val macdDirections  = Vector(
-          macd1.macdDirection(),
-          macd5.macdDirection(),
-          macd15.macdDirection(),
-          macd60.macdDirection(),
-          macd240.macdDirection(),
+          macd1.macdBarTrend(),
+          macd5.macdBarTrend(),
+          macd15.macdBarTrend(),
+          macd60.macdBarTrend(),
+          macd240.macdBarTrend()
         )
         val macd1Directions = Vector(
-          macd1.macdDirection(1),
-          macd5.macdDirection(1),
-          macd15.macdDirection(1),
-          macd60.macdDirection(1),
-          macd240.macdDirection(1),
+          macd1.macdBarTrend(1),
+          macd5.macdBarTrend(1),
+          macd15.macdBarTrend(1),
+          macd60.macdBarTrend(1),
+          macd240.macdBarTrend(1)
         )
 
+        // 满足开仓条件则平a开b
         if (
           macdDirections.forall(_ == macdDirections(0)) &&
           !macd1Directions.forall(_ == macdDirections(0))
+            // 1分钟连续5个周期, 5分钟连续4个周期， 15min3个周期， 1h 2个周期， 4h 一个周期 
         ) {
+        val as = avgSize()
             if (
               positionMgr.hasPosition && positionMgr.currentPosition.get.direction != macdDirections(
                 0
@@ -276,17 +279,20 @@ class MacdStrategy(
                 return
             }
             // 可能会亏损后导致开仓额度不足
-            val as = avgSize()
             positionMgr.open(
               k,
               k.close,
               macdDirections(0),
-              Some(k.close - (0.5 * as) * macdDirections(0)),
+              Some(k.close - (slFactor * as) * macdDirections(0)),
               None,
               false
             )
             // 休息一分钟
             openTime = ZonedDateTime.now()
+        } else {
+            // 不满足开仓条件则判断是否触发了跟踪止盈
+            // 防止平仓后又立马开仓
+            checkSl()
         }
         // lastTick = k
     }
