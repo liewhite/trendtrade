@@ -241,6 +241,15 @@ class MacdStrategy(
         //     return
         // }
 
+        val macd_1 = Vector(
+          macd1.macdDirection(0),
+          macd1.macdDirection(1),
+          macd1.macdDirection(2),
+        )
+        val macd_5 = Vector(
+
+        )
+
         val macds     = Vector(
           macd1.macdDirection(),
           macd5.macdDirection(),
