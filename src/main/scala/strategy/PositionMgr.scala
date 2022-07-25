@@ -74,7 +74,8 @@ class PositionMgr(
         direction: Int,
         sl: Option[BigDecimal] = None,
         tp: Option[BigDecimal] = None,
-        autoClose: Boolean = true // 是否挂止损止盈单
+        autoClose: Boolean = true, // 是否挂止损止盈单
+        reason: String = ""
     ): Unit = {
         if (currentPosition.nonEmpty) {
             return
@@ -92,7 +93,7 @@ class PositionMgr(
         val rawQuantity = ((balances._1 / maxHolds) / price * trader.leverage)
         val quantity    = formatQuantity(rawQuantity)
         val side        = if (direction == 1) TradeSide.BUY else TradeSide.SELL
-        val msg         = s"开仓 ${symbol}, ${side} ${quantity}"
+        val msg         = s"开仓 ${symbol}, ${side} ${quantity}: 依据: ${reason}"
         logger.info(msg)
         ntf.sendNotify(msg)
         try {

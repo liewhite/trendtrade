@@ -13,13 +13,13 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// 突破所有均线开仓
+// 突破所有均线, 且短期均线处于优势侧
 // 结合浮动止盈
 class MasStrategy(
     symbol:          String,
     interval:        String,
     shortMaInterval: Int, // 短均线
-    midMaInterval:   Int, // 中均线
+    // midMaInterval:   Int, // 中均线
     longMaInterval:  Int, // 长均线
     maxHold:         Int,
     trader:          BinanceApi,
@@ -28,7 +28,7 @@ class MasStrategy(
 ) {
     val klines      = KlineMetric()
     val shortMa     = MaMetric(klines, shortMaInterval)
-    val midMa       = MaMetric(klines, midMaInterval)
+    // val midMa       = MaMetric(klines, midMaInterval)
     val longMa      = MaMetric(klines, longMaInterval)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
 
@@ -55,7 +55,7 @@ class MasStrategy(
     def metricTick(k: Kline) = {
         klines.tick(k)
         shortMa.tick(k)
-        midMa.tick(k)
+        // midMa.tick(k)
         longMa.tick(k)
     }
 
@@ -105,7 +105,7 @@ class MasStrategy(
             (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到3倍波动")
         } else if (profitForAvgSize > 1.5) {
             // 浮盈大于1倍size， 保本出
-            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到1.5倍波动")
+            (maxSl(oldSl, p.openAt + profit * 0.2 * p.direction, p.direction), "达到1.5倍波动")
         } else if (profitForAvgSize <= 0.5) {
             // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小
@@ -160,7 +160,7 @@ class MasStrategy(
 
     // 收盘跌破两根均线平仓
     def checkClose(): Unit = {
-        if (!positionMgr.hasPosition) {
+        if (!positionMgr.hasPosition || !klines.current.end) {
             return
         }
 
@@ -168,18 +168,14 @@ class MasStrategy(
 
         val pDirection = positionMgr.currentPosition.get.direction
         if (positionMgr.currentPosition.nonEmpty) {
-            val metrics = Vector(
-              (k.close - shortMa.currentValue) * pDirection <= 0,
-              (k.close - midMa.currentValue) * pDirection <= 0,
-              (k.close - longMa.currentValue) * pDirection <= 0
-            )
             // 跌破两根均线平仓
-            if (metrics.count(identity) >= 2 && k.end) {
+            if (
+              (k.close - shortMa.currentValue) * pDirection <= 0 && // 跌破短期均线
+              //   (k.close - midMa.currentValue) * pDirection <= 0,
+              (k.close - longMa.currentValue) * pDirection <= 0 &&  // 跌破长期均线
+              (k.close - k.open) * pDirection <= 0                  // 阴线
+            ) {
                 positionMgr.closeCurrent(k, "收盘跌破两根均线")
-            }
-            // 盘中跌破3根均线平仓
-            if (metrics.count(identity) > 2 && k.end) {
-                positionMgr.closeCurrent(k, "盘中跌破所有跌破均线")
             }
         }
     }
@@ -190,63 +186,47 @@ class MasStrategy(
         if (!history && klines.data.length >= 60 && lastTick != null) {
             updateSl()
             checkSl()
-            // checkClose()
+            checkClose()
+
             if (
               openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
             ) {
                 return
             }
 
-            // 上一K没有跌破所有均线
-            val lastK            = klines.data(1)
-            val lastCloseMetrics = Vector(
-              (lastK.close - shortMa.data(1).value).signum,
-              (lastK.close - midMa.data(1).value).signum,
-              (lastK.close - longMa.data(1).value).signum
-            )
+            val direction = (shortMa.currentValue - longMa.currentValue).signum
 
-            // 当前价跌破所有均线
-            val closeMetrics = Vector(
-              (k.close - shortMa.currentValue).signum,
-              (k.close - midMa.currentValue).signum,
-              (k.close - longMa.currentValue).signum
-            )
+            val lastTickLongMa = if (lastTick.end) longMa.data(1).value else longMa.currentValue
+            val lastTickShorMa = if (lastTick.end) shortMa.data(1).value else shortMa.currentValue
 
-            // 上一tick没有跌破所有均线
-            val lastTickMetrics = Vector(
-              (lastTick.close - shortMa.currentValue).signum,
-              (lastTick.close - midMa.currentValue).signum,
-              (lastTick.close - longMa.currentValue).signum
-            )
-
-            val direction = if (closeMetrics.forall(_ == 1)) {
-                1
-            } else if (closeMetrics.forall(_ == -1)) {
-                -1
-            } else {
-                0
-            }
-
-            val maValues = Vector(shortMa.currentValue, midMa.currentValue, longMa.currentValue)
-            val as       = avgSize()
+            val as = avgSize()
             // 突破均线
             if (
-            //   positionMgr.currentPoition.isEmpty && // 无持仓
-              direction != 0 &&                      // 突破所有均线,且本tick刚突破
-              !lastCloseMetrics.forall(_ == direction) &&
-              !lastTickMetrics.forall(_ == direction)
+              //   positionMgr.currentPoition.isEmpty && // 无持仓
+              direction != 0 &&                     // 突破所有均线,且本tick刚突破
+              (k.close - k.open) * direction > 0 && // 阳线
+              (k.close - longMa.currentValue) * direction >= 0 &&
+              (k.close - shortMa.currentValue) * direction >= 0 &&
+              !((lastTick.close - lastTickShorMa) * direction >= 0 &&
+                  (lastTick.close - lastTickLongMa) * direction >= 0)
             ) {
-                if(positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction) {
+                if (
+                  positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
+                ) {
                     positionMgr.closeCurrent(k, "反手")
                 }
-                positionMgr.open(
-                  k,
-                  k.close,
-                  direction,
-                  Some(k.close - (1 * as) * direction),
-                  None,
-                  false
-                )
+                if (!positionMgr.hasPosition) {
+                    positionMgr.open(
+                      k,
+                      k.close,
+                      direction,
+                      Some(k.close - (1 * as) * direction),
+                      None,
+                      false,
+                      s"lasTick: ${lastTick.close} current: ${k.close} current ma: ${longMa.currentValue}, ${shortMa.currentValue}, last ma: ${lastTickLongMa}, ${lastTickShorMa}"
+                    )
+
+                }
                 // 休息一分钟
                 openTime = ZonedDateTime.now()
             }
