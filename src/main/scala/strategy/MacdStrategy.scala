@@ -258,13 +258,14 @@ class MacdStrategy(
           macd240.macdBarTrend(1)
         )
 
+        val as = avgSize()
         // 满足开仓条件则平a开b
+        // 同时满足条件很难。
         if (
           macdDirections.forall(_ == macdDirections(0)) &&
-          !macd1Directions.forall(_ == macdDirections(0))
-            // 1分钟连续5个周期, 5分钟连续4个周期， 15min3个周期， 1h 2个周期， 4h 一个周期 
+          !macd1Directions.forall(_ == macdDirections(0)) && 
+          (klines60.current.close - klines60.current.open).abs < as * 1.5 // 过滤硬拉指标的情况， 宁愿下次再找机会进
         ) {
-        val as = avgSize()
             if (
               positionMgr.hasPosition && positionMgr.currentPosition.get.direction != macdDirections(
                 0

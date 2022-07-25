@@ -13,7 +13,6 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-
 class MaStrategy(
     symbol:          String,
     interval:        String,
@@ -29,6 +28,7 @@ class MaStrategy(
     val longMa      = MaMetric(klines, longMaInterval)
     val macd        = MacdMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
+    val slFactor    = 1
 
     val logger = Logger("strategy")
 
@@ -68,7 +68,7 @@ class MaStrategy(
         val p     = positionMgr.currentPosition.get
         // load position 的时候没有止损
         val oldSl = p.stopLoss match {
-            case None    => p.openAt - p.direction * as * 1.5
+            case None    => p.openAt - p.direction * as * slFactor
             case Some(o) => o
         }
 
@@ -107,10 +107,10 @@ class MaStrategy(
             // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小
             // 反之， 波动大， 止损就大， 跟随市场
-            (maxSl(oldSl, p.openAt - as * 1.5 * p.direction, p.direction), "无浮盈")
+            (maxSl(oldSl, p.openAt - as * slFactor * p.direction, p.direction), "无浮盈")
         } else {
             // 应该不会执行到这里
-            (p.stopLoss.get, "无止损调节需求")
+            (oldSl, "无止损调节需求")
         }
         if (newSl != oldSl) {
             ntf.sendNotify(
@@ -156,19 +156,20 @@ class MaStrategy(
     var lastTick: Kline         = null
 
     def checkClose(): Unit = {
-        if(!positionMgr.hasPosition) {
+        if (!positionMgr.hasPosition || !klines.current.end) {
             return
         }
-        val macdDirection = macd.macdDirection(1)
+
+        val macdDirection = macd.macdBarTrend()
         val k             = klines.current
         val pDirection    = positionMgr.currentPosition.get.direction
-        // 有持仓， k线收盘
-        // 1. 同一K突破再回撤过均线，如果macd转势, 下一K平仓
-        // 2. macd已转势， 跌破均线即平仓
+
+        // macd 转向 且阴线收到劣势侧
         if (positionMgr.currentPosition.nonEmpty) {
             if (
               (macdDirection != pDirection &&
-              (k.close - shortMa.currentValue) * pDirection < 0) // 价格在均线劣势侧且仓位逆势了
+                  (k.close - shortMa.currentValue) * pDirection < 0) && // 价格在均线劣势侧且仓位逆势了
+              (k.close - k.open) * pDirection < 0                       // 阴线
             ) {
                 positionMgr.closeCurrent(k, "跌破均线")
             }
@@ -183,7 +184,7 @@ class MaStrategy(
             checkSl()
             checkClose()
 
-            val macdDirection = macd.macdDirection(1)
+            val macdDirection = macd.macdBarTrend()
 
             if (
               openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
@@ -192,22 +193,29 @@ class MaStrategy(
             }
 
             val as = avgSize()
-            // macd 前一K方向
-            // 突破均线
+
             if (
-              positionMgr.currentPosition.isEmpty && 
-              macdDirection != 0 &&                  
-              (lastTick.close - shortMa.currentValue) * macdDirection < 0 && 
-              (k.close - shortMa.currentValue) * macdDirection >= 0
+              //   positionMgr.currentPosition.isEmpty &&
+              macdDirection != 0 &&
+              (k.close - shortMa.currentValue) * macdDirection < as * 0.2 && // 未远离均线
+              (k.close - k.open) * macdDirection >= 0 &&                     // 阳线
+              (k.close - k.open).abs >= as * 0.2                             // 有效K线
             ) {
-                positionMgr.open(
-                  k,
-                  k.close,
-                  macdDirection,
-                  Some(k.close - (1.5 * as) * macdDirection),
-                  None,
-                  false
-                )
+                if (
+                  positionMgr.hasPosition && positionMgr.currentPosition.get.direction != macdDirection
+                ) {
+                    positionMgr.closeCurrent(k, "平仓反手")
+                }
+                if (!positionMgr.hasPosition) {
+                    positionMgr.open(
+                      k,
+                      k.close,
+                      macdDirection,
+                      Some(k.close - (slFactor * as) * macdDirection),
+                      None,
+                      false
+                    )
+                }
                 // 休息一分钟
                 openTime = ZonedDateTime.now()
             }
