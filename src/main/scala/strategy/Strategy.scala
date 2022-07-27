@@ -85,16 +85,15 @@ class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
             None
         }
     }
-    def currentValue               = {
+
+    def currentValue = {
         data(0).value
     }
 
-    def maDirection                          = {
-        (data(0).value - data(1).value).signum
-    }
-    def historyMaDirection(offset: Int): Int = {
+    def maDirection(offset: Int = 0) = {
         (data(offset).value - data(offset + 1).value).signum
     }
+
 }
 
 case class Macd(
@@ -179,8 +178,8 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
         (data(offset).bar - data(offset + 1).bar).signum
     }
 
-    def deaDirection: Int = {
-        (data(0).dea - data(1).dea).signum
+    def deaDirection(offset: Int = 0): Int = {
+        (data(offset).dea - data(offset + 1).dea).signum
     }
 }
 
@@ -281,7 +280,7 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
         }
     }
     // kdj排列，金叉区间还是死叉区间
-    def kdjRange(offset: Int = 0): Int =  {
+    def kdjRange(offset: Int = 0): Int                                   = {
         (data(offset).j - data(offset).d).signum
     }
 
@@ -298,7 +297,7 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
         }
     }
 
-    def dDirection: Int = {
-        (data(0).d - data(1).d).signum
+    def dDirection(offset: Int = 0): Int = {
+        (data(offset).d - data(offset + 1).d).signum
     }
 }
