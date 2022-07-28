@@ -96,6 +96,47 @@ class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
 
 }
 
+case class Ema(
+    value: BigDecimal,
+    ifEnd: Boolean
+) extends IsEnd {
+
+    def isEnd = ifEnd
+
+    def next(k: Kline, interval: Int): Ema = {
+        val e = value * (interval - 1) / (interval + 1) + k.close * 2 / (interval + 1)
+        Ema(e, k.end)
+    }
+}
+
+class EmaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ema] {
+    def next(k: Kline): Option[Ema] = {
+        val v = if (data.isEmpty) {
+            Ema(k.close, k.end)
+        } else {
+            if (data.length == 1) {
+                if (data(0).isEnd) {
+                    data(0).next(k, interval)
+                } else {
+                    Ema(k.close, k.end)
+                }
+            } else {
+                if (data(0).isEnd) {
+                    data(0).next(k, interval)
+                } else {
+                    data(1).next(k, interval)
+                }
+            }
+        }
+        Some(v)
+    }
+
+    def emaDirection(offset: Int = 0) = {
+        (data(offset).value - data(offset + 1).value).signum
+    }
+
+}
+
 case class Macd(
     datetime: ZonedDateTime,
     ema12:    BigDecimal,

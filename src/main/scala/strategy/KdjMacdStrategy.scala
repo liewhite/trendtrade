@@ -33,7 +33,7 @@ class KdjMacdStrategy(
     // val midMa       = MaMetric(klines, midMaInterval)
     // val longMa      = MaMetric(klines, longMaInterval)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
-    val slFactor    = 1.5
+    val slFactor    = 1
 
     val logger = Logger("strategy")
 
@@ -102,17 +102,14 @@ class KdjMacdStrategy(
             (maxSl(oldSl, p.openAt + profit * 0.8 * p.direction, p.direction), "达到10倍波动")
         } else if (profitForAvgSize > 5) {
             // 浮盈大于5倍k线size, 跟踪止盈到最大盈利的60%
-            (maxSl(oldSl, p.openAt + profit * 0.6 * p.direction, p.direction), "达到5倍波动")
+            (maxSl(oldSl, p.openAt + profit * 0.7 * p.direction, p.direction), "达到5倍波动")
         } else if (profitForAvgSize > 3) {
             // 浮盈大于3倍k线size, 跟踪止盈到最大盈利的40%
-            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到3倍波动")
-        } else if (profitForAvgSize > 1.5) {
+            (maxSl(oldSl, p.openAt + profit * 0.5 * p.direction, p.direction), "达到3倍波动")
+        } else if (profitForAvgSize > 1) {
             // 浮盈大于1倍size， 保本出
-            (maxSl(oldSl, p.openAt + profit * 0.3 * p.direction, p.direction), "达到1.5倍波动")
+            (maxSl(oldSl, p.openAt + profit * 0.2 * p.direction, p.direction), "达到1倍波动")
         } else if (profitForAvgSize <= 0.5) {
-            // 几乎无盈利或浮亏， 0.8倍平均size止损
-            // 当波动越来越小， 止损也越来越小
-            // 反之， 波动大， 止损就大， 跟随市场
             (maxSl(oldSl, p.openAt - as * slFactor * p.direction, p.direction), "无浮盈")
         } else {
             // 应该不会执行到这里
@@ -162,6 +159,8 @@ class KdjMacdStrategy(
 
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
+        // logger.info(s"${k.datetime}   ${shortMa.current.value}")
+        // return
         // 忽略历史数据， 只处理实时数据
         if (!history && klines.data.length >= 60) {
             updateSl()
@@ -174,12 +173,12 @@ class KdjMacdStrategy(
             val maxMaOffset = if ((k.close - k.open) * maDirection < 0) {
                 as * 0.1
             } else {
-                as * 0.4
+                as * 0.5
             }
 
             val direction =
                 if (
-                  dDirection == macdDirection && macdDirection == maDirection && (k.close - shortMa.currentValue) * maDirection < maxMaOffset
+                  dDirection == macdDirection && macdDirection == maDirection && (k.close - shortMa.current.value) * maDirection < maxMaOffset
                 ) {
                     dDirection
                 } else {

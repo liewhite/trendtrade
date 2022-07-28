@@ -448,9 +448,13 @@ trait BinanceApi(
             )
             .send(backend)
 
-        val res   = response.body.fromJsonMust[Vector[OpenInterestResponse]]
-        val value = BigDecimal(res(0).sumOpenInterestValue)
-        value
+        // logger.info(s"openInterest for ${symbol}: ${response.body}")
+        val res = response.body.fromJsonMust[Vector[OpenInterestResponse]]
+        if (res.isEmpty) {
+            0
+        } else {
+            BigDecimal(res(0).sumOpenInterestValue)
+        }
     }
 
     // (total, available)
@@ -687,7 +691,7 @@ trait BinanceApi(
     def autoSupply() = {
         val (total, _) = getTotalBalance()
         ntf.sendNotify(s"当前保证金: ${total},所需最低保证金: ${totalSupply}")
-        
+
         // 如果保证金低于最低要求,补足
         if (total < totalSupply * 0.99) {
             // 取整
