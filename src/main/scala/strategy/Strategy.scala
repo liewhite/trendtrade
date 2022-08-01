@@ -94,6 +94,18 @@ class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
         (data(offset).value - data(offset + 1).value).signum
     }
 
+    def maTrend(span: Int = 4,offset: Int = 0): Int = {
+        val sigs = data.slice(offset, offset + span + 1).sliding(2).map(item => {
+            (item(0).value - item(1).value).signum
+        })
+        if(sigs.forall(_ == 1)) {
+            1
+        }else if(sigs.forall(_ == -1)) {
+            -1
+        }else {
+            0
+        }
+    }
 }
 
 case class Ema(
@@ -135,6 +147,18 @@ class EmaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ema] {
         (data(offset).value - data(offset + 1).value).signum
     }
 
+    def emaTrend(span: Int = 4,offset: Int = 0): Int = {
+        val sigs = data.slice(offset, offset + span + 1).sliding(2).map(item => {
+            (item(0).value - item(1).value).signum
+        })
+        if(sigs.forall(_ == 1)) {
+            1
+        }else if(sigs.forall(_ == -1)) {
+            -1
+        }else {
+            0
+        }
+    }
 }
 
 case class Macd(
@@ -320,8 +344,9 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
             0
         }
     }
+
     // kdj排列，金叉区间还是死叉区间
-    def kdjRange(offset: Int = 0): Int                                   = {
+    def kdjRange(offset: Int = 0): Int = {
         (data(offset).j - data(offset).d).signum
     }
 

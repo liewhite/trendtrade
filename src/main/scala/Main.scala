@@ -75,7 +75,7 @@ def start()              = {
     // val validSymbols = Vector(SymbolMeta("BTCUSDT", 0.01, 0.01))
 
     val strategies = validSymbols.map(s => {
-        val bot = KdjMacdStrategy(
+        val bot = TrendStrategy(
           s.symbol,
           interval,
           cfg.shortMa,

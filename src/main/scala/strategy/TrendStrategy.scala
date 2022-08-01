@@ -13,9 +13,9 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// 均线方向和macd背离， 价格突破均线
-// 均线， kdj.d macd.dea 方向一致且价格合理开仓
-class KdjMacdStrategy(
+// 连续三个周期收盘价（当前K线以最新价为准)高于自身往前第四根K线
+// 阴线价格不高于K线 0.1， 阳线不高于k线0.5
+class TrendStrategy(
     symbol:          String,
     interval:        String,
     shortMaInterval: Int, // 短均线
@@ -28,12 +28,10 @@ class KdjMacdStrategy(
 ) {
     val klines      = KlineMetric()
     val shortMa     = MaMetric(klines, shortMaInterval)
-    val macd        = MacdMetric(klines)
-    val kdj         = KdjMetric(klines)
-    // val midMa       = MaMetric(klines, midMaInterval)
-    // val longMa      = MaMetric(klines, longMaInterval)
+    // val macd        = MacdMetric(klines)
+    // val kdj         = KdjMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
-    val slFactor    = 1
+    val slFactor    = 0.3
 
     val logger = Logger("strategy")
 
@@ -58,8 +56,8 @@ class KdjMacdStrategy(
     def metricTick(k: Kline) = {
         klines.tick(k)
         shortMa.tick(k)
-        kdj.tick(k)
-        macd.tick(k)
+        // kdj.tick(k)
+        // macd.tick(k)
     }
 
     // 更新止损位
@@ -159,32 +157,32 @@ class KdjMacdStrategy(
 
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
-        // logger.info(s"${k.datetime}   ${shortMa.current.value}")
-        // return
         // 忽略历史数据， 只处理实时数据
-        if (!history && klines.data.length >= 60) {
+        if (!history && klines.data.length >= 30) {
             updateSl()
-            val dDirection    = kdj.dDirection()
-            val macdDirection = macd.deaDirection()
-            val maDirection   = shortMa.maDirection()
+            val ks = klines.data
+
+            val fth = (ks(3).close - ks(7).close).signum
+
+            val trend = Range(0,3).map(i => {
+               (ks(i).close - ks(i + 4).close).signum
+            })
+
+            val direction = if(trend.forall(_ == 1) && fth != 1) {
+                1
+            }else if (trend.forall(_ == -1) && fth != -1) {
+                -1
+            }else {
+                0
+            }
 
             val as          = avgSize()
             // 阴线需要足够接近均线， 阳线则可以稍微放宽
-            val maxMaOffset = if ((k.close - k.open) * maDirection < 0) {
+            val maxMaOffset = if ((k.close - k.open) * direction < 0) {
                 as * 0.1
             } else {
                 as * 0.5
             }
-
-            val direction =
-                if (
-                  dDirection == macdDirection && macdDirection == maDirection && (k.close - shortMa.current.value) * maDirection < maxMaOffset
-                ) {
-                    dDirection
-                } else {
-                    0
-                }
-
             // 只有无方向时才止盈, 不然会继续开仓
             // 插针行情会因为远离均线所以可以使得direction == 0
             if (direction == 0) {
@@ -198,7 +196,8 @@ class KdjMacdStrategy(
             }
 
             if (
-              direction != 0 // macd 方向
+              direction != 0 && 
+              (k.close - shortMa.currentValue) * direction < maxMaOffset
             ) {
                 if (
                   positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
