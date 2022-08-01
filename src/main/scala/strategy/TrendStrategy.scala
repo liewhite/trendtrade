@@ -164,15 +164,15 @@ class TrendStrategy(
 
             val fth = (ks(3).close - ks(7).close).signum
 
-            val trend = Range(0,3).map(i => {
-               (ks(i).close - ks(i + 4).close).signum
+            val trend = Range(0, 3).map(i => {
+                (ks(i).close - ks(i + 4).close).signum
             })
 
-            val direction = if(trend.forall(_ == 1) && fth != 1) {
+            val direction = if (trend.forall(_ == 1) && fth != 1) {
                 1
-            }else if (trend.forall(_ == -1) && fth != -1) {
+            } else if (trend.forall(_ == -1) && fth != -1) {
                 -1
-            }else {
+            } else {
                 0
             }
 
@@ -183,9 +183,14 @@ class TrendStrategy(
             } else {
                 as * 0.5
             }
+
+            // 当出现跌破第四根收盘价或远离均线时， 整个开仓条件就被破坏了， 如果价格回落， 考虑止盈
+            val condition   =
+                direction != 0 && (k.close - shortMa.currentValue) * direction < maxMaOffset
+
             // 只有无方向时才止盈, 不然会继续开仓
             // 插针行情会因为远离均线所以可以使得direction == 0
-            if (direction == 0) {
+            if (!condition) {
                 checkSl()
             }
 
@@ -195,10 +200,7 @@ class TrendStrategy(
                 return
             }
 
-            if (
-              direction != 0 && 
-              (k.close - shortMa.currentValue) * direction < maxMaOffset
-            ) {
+            if (condition) {
                 if (
                   positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
                 ) {

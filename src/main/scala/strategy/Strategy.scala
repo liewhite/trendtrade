@@ -234,9 +234,17 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
         }
     }
 
-    // macd 趋势, 应用上涨下跌结构的特性， 只要整体保持趋势即可
-    def macdBarTrend(offset: Int = 0, count: Int = 4): Int = {
-        (data(offset).bar - data(offset + count).bar).signum
+    def macdBarTrend(offset: Int = 0, count: Int = 3): Int = {
+        val ds = Range(0, count).map(i => {
+            (data(offset+ i).bar - data(offset + i + 1).bar).signum
+        })
+        if(ds.forall(_ == 1)) {
+            1
+        }else if(ds.forall(_ == -1)) {
+            -1
+        }else {
+            0
+        }
     }
 
     def macdDirection(offset: Int = 0): Int = {

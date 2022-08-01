@@ -13,14 +13,10 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// 在买卖点结合其他技术指标判定其可信度
-// 比如一买处结合kdj和macd, 一买均线肯定逆势
-// 二买处结合均线
-// 三买处结合 macd 和 均线
-// 跌破中枢后的第一个底分型， macd底背离， 一买
-// 底背驰拉回中枢后的第一个底分型， 没有再次跌破中枢， 二买
-// 突破中枢后的第一个底分型， 没有回到中枢内， 三买
-class CzscStrategy(
+// 突破策略
+// 突破压力， 回踩不破
+// 维护最近的压力区域
+class BreakStrategy(
     symbol:          String,
     interval:        String,
     shortMaInterval: Int, // 短均线
