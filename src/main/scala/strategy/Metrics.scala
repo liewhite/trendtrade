@@ -3,6 +3,8 @@ package strategy
 import scala.collection.mutable
 import cats.instances.int
 import java.time.ZonedDateTime
+import java.time.Instant
+import java.time.ZoneId
 
 trait IsEnd {
     def isEnd: Boolean

@@ -300,7 +300,7 @@ trait BinanceApi(
         )
     }
 
-    def getHistory(symbol: String, interval: String, limit: Int = 250): Vector[Kline] = {
+    def getHistory(symbol: String, interval: String, limit: Int = 499): Vector[Kline] = {
         val response = quickRequest
             .get(
               uri"${binanceHttpBaseUrl}/fapi/v1/continuousKlines?limit=${limit}&pair=${symbol}&contractType=PERPETUAL&interval=${interval}"
