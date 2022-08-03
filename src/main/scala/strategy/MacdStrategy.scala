@@ -38,13 +38,15 @@ class MacdStrategy(
     val macd30      = MacdMetric(klines30)
     // val macd60      = MacdMetric(klines60)
     // val macd240     = MacdMetric(klines240)
+    val ma5         = MaMetric(klines5, 20)
+    val ma30        = MaMetric(klines30, 20)
 
-    val kdj1       = KdjMetric(klines1)
-    val kdj5       = KdjMetric(klines5)
-    val kdj30      = KdjMetric(klines30)
+    val kdj1  = KdjMetric(klines1)
+    val kdj5  = KdjMetric(klines5)
+    val kdj30 = KdjMetric(klines30)
 
-    val logger      = Logger("strategy")
-    val slFactor    = 0.5
+    val logger   = Logger("strategy")
+    val slFactor = 0.5
 
     val positionMgr = PositionMgr(symbol, trader, maxHolds, ntf, exceptionNotify)
 
@@ -58,10 +60,10 @@ class MacdStrategy(
 
     // 币安是以k线开始时间为准的
     def loadHistory() = {
-        val history1   = trader.getHistory(symbol, minInterval)
-        val history5   = trader.getHistory(symbol, "5m")
+        val history1  = trader.getHistory(symbol, minInterval)
+        val history5  = trader.getHistory(symbol, "5m")
         // val history15  = trader.getHistory(symbol, "15m")
-        val history30  = trader.getHistory(symbol, "30m")
+        val history30 = trader.getHistory(symbol, "30m")
         // val history60  = trader.getHistory(symbol, "1h")
         // val history240 = trader.getHistory(symbol, "4h")
 
@@ -72,6 +74,7 @@ class MacdStrategy(
         history5.dropRight(1).foreach(klines5.tick(_))
         history5.dropRight(1).foreach(macd5.tick(_))
         history5.dropRight(1).foreach(kdj5.tick(_))
+        history5.dropRight(1).foreach(ma5.tick(_))
 
         // history15.dropRight(1).foreach(klines15.tick(_))
         // history15.dropRight(1).foreach(macd15.tick(_))
@@ -79,6 +82,7 @@ class MacdStrategy(
         history30.dropRight(1).foreach(klines30.tick(_))
         history30.dropRight(1).foreach(macd30.tick(_))
         history30.dropRight(1).foreach(kdj30.tick(_))
+        history30.dropRight(1).foreach(ma30.tick(_))
 
         // history60.dropRight(1).foreach(klines60.tick(_))
         // history60.dropRight(1).foreach(macd60.tick(_))
@@ -216,12 +220,21 @@ class MacdStrategy(
         }
     }
 
-    def tickN(k: Kline, n: Int, ks: KlineMetric, macdM: MacdMetric, kdjM: KdjMetric) = {
+    def tickN(
+        k: Kline,
+        n: Int,
+        ks: KlineMetric,
+        maM: MaMetric,
+        macdM: MacdMetric,
+        kdjM: KdjMetric
+    ) = {
         val knResult = kn(n)
         // logger.info(s"${symbol} k${n}: ${knResult}")
         ks.tick(knResult)
         macdM.tick(knResult)
         kdjM.tick(knResult)
+        maM.tick(knResult)
+
     }
 
     def metricTick(k: Kline) = {
@@ -229,15 +242,15 @@ class MacdStrategy(
         // logger.info(s"${symbol} ts: ${startSecondsOfK}")
         klines1.tick(k)
         macd1.tick(k)
-        tickN(k, 5, klines5, macd5, kdj5)
+        tickN(k, 5, klines5, ma5, macd5, kdj5)
         // tickN(k, 15, klines15, macd15)
-        tickN(k, 30, klines30, macd30,kdj30)
+        tickN(k, 30, klines30, ma30, macd30, kdj30)
         // tickN(k, 60, klines60, macd60)
         // tickN(k, 240, klines240, macd240)
     }
 
     var openTime: ZonedDateTime = null
-    var lastCondition: Boolean = false
+    var lastCondition: Boolean  = false
     // var lastTick: Kline         = null
 
     def tick(k: Kline, history: Boolean = false): Unit = {
@@ -255,29 +268,29 @@ class MacdStrategy(
 
         updateSl()
 
-        val macdDirections  = Vector(
+        val macdDirections = Vector(
           macd5.macdBarTrend(),
-          macd30.macdBarTrend(),
+          macd30.macdBarTrend()
         )
 
         val kdjDirections = Vector(
-            kdj5.kdjRange(),
-            kdj30.kdjRange(),
+          kdj5.kdjRange(),
+          kdj30.kdjRange()
         )
-        val direction = if(macdDirections.forall(_ == 1)){
+        val direction     = if (macdDirections.forall(_ == 1)) {
             1
-        }else if(macdDirections.forall(_ == -1)) {
+        } else if (macdDirections.forall(_ == -1)) {
             -1
-        }else {
+        } else {
             0
         }
-        val condition = direction !=0 && kdjDirections.forall(_ == direction)
 
         val as = avgSize()
-        if (condition && ! lastCondition) {
-            if (
-              positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
-            ) {
+
+        val condition     = direction != 0 && kdjDirections.forall(_ == direction) && (k.close - ma30.currentValue) * direction < as
+
+        if (condition && !lastCondition) {
+            if (positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction) {
                 positionMgr.closeCurrent(k, "平仓反手")
             }
 
