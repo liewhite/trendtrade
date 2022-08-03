@@ -14,10 +14,9 @@ import notifier.Notify
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 
-// 多周期macd共振。
-// 颜色共振， 方向共振。
+// 双周期macd， kdj共振
+// macd trend同向， kdj金叉区间
 // 1，5，15, 1H, 4H， 1 + 3 个周期反手开仓
-// 大K线引发开仓， 随后拉回引起亏损( 只响应小幅度K线信号 )
 // 跟踪止盈
 class MacdStrategy(
     symbol:          String,
@@ -29,16 +28,23 @@ class MacdStrategy(
     val minInterval = "1m"
     val klines1     = KlineMetric()
     val klines5     = KlineMetric()
-    val klines15    = KlineMetric()
-    val klines60    = KlineMetric()
-    val klines240   = KlineMetric()
+    // val klines15    = KlineMetric()
+    val klines30    = KlineMetric()
+    // val klines60    = KlineMetric()
+    // val klines240   = KlineMetric()
     val macd1       = MacdMetric(klines1)
     val macd5       = MacdMetric(klines5)
-    val macd15      = MacdMetric(klines15)
-    val macd60      = MacdMetric(klines60)
-    val macd240     = MacdMetric(klines240)
+    // val macd15      = MacdMetric(klines15)
+    val macd30      = MacdMetric(klines30)
+    // val macd60      = MacdMetric(klines60)
+    // val macd240     = MacdMetric(klines240)
+
+    val kdj1       = KdjMetric(klines1)
+    val kdj5       = KdjMetric(klines5)
+    val kdj30      = KdjMetric(klines30)
+
     val logger      = Logger("strategy")
-    val slFactor    = 1
+    val slFactor    = 0.5
 
     val positionMgr = PositionMgr(symbol, trader, maxHolds, ntf, exceptionNotify)
 
@@ -54,30 +60,37 @@ class MacdStrategy(
     def loadHistory() = {
         val history1   = trader.getHistory(symbol, minInterval)
         val history5   = trader.getHistory(symbol, "5m")
-        val history15  = trader.getHistory(symbol, "15m")
-        val history60  = trader.getHistory(symbol, "1h")
-        val history240 = trader.getHistory(symbol, "4h")
+        // val history15  = trader.getHistory(symbol, "15m")
+        val history30  = trader.getHistory(symbol, "30m")
+        // val history60  = trader.getHistory(symbol, "1h")
+        // val history240 = trader.getHistory(symbol, "4h")
 
         history1.dropRight(1).foreach(klines1.tick(_))
         history1.dropRight(1).foreach(macd1.tick(_))
+        history1.dropRight(1).foreach(kdj1.tick(_))
 
         history5.dropRight(1).foreach(klines5.tick(_))
         history5.dropRight(1).foreach(macd5.tick(_))
+        history5.dropRight(1).foreach(kdj5.tick(_))
 
-        history15.dropRight(1).foreach(klines15.tick(_))
-        history15.dropRight(1).foreach(macd15.tick(_))
+        // history15.dropRight(1).foreach(klines15.tick(_))
+        // history15.dropRight(1).foreach(macd15.tick(_))
 
-        history60.dropRight(1).foreach(klines60.tick(_))
-        history60.dropRight(1).foreach(macd60.tick(_))
+        history30.dropRight(1).foreach(klines30.tick(_))
+        history30.dropRight(1).foreach(macd30.tick(_))
+        history30.dropRight(1).foreach(kdj30.tick(_))
 
-        history240.dropRight(1).foreach(klines240.tick(_))
-        history240.dropRight(1).foreach(macd240.tick(_))
+        // history60.dropRight(1).foreach(klines60.tick(_))
+        // history60.dropRight(1).foreach(macd60.tick(_))
+
+        // history240.dropRight(1).foreach(klines240.tick(_))
+        // history240.dropRight(1).foreach(macd240.tick(_))
     }
 
     // 除当前K外的最近k线平均大小
     def avgSize(): BigDecimal = {
         // 以15min线作为跟踪止盈基准
-        val entities = klines60.data
+        val entities = klines30.data
             .slice(1, 21)
             .map(item => {
                 if (item.high == item.low) {
@@ -130,13 +143,19 @@ class MacdStrategy(
             (maxSl(oldSl, p.openAt + profit * 0.8 * p.direction, p.direction), "达到10倍波动")
         } else if (profitForAvgSize > 5) {
             // 浮盈大于5倍k线size, 跟踪止盈到最大盈利的60%
-            (maxSl(oldSl, p.openAt + profit * 0.6 * p.direction, p.direction), "达到5倍波动")
+            (maxSl(oldSl, p.openAt + profit * 0.7 * p.direction, p.direction), "达到5倍波动")
         } else if (profitForAvgSize > 3) {
             // 浮盈大于3倍k线size, 跟踪止盈到最大盈利的40%
-            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到3倍波动")
+            (maxSl(oldSl, p.openAt + profit * 0.6 * p.direction, p.direction), "达到3倍波动")
         } else if (profitForAvgSize > 1.5) {
-            // 浮盈大于1倍size， 保本出
-            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到1.5倍波动")
+            // 浮盈大于1倍size， 0.75出
+            (maxSl(oldSl, p.openAt + profit * 0.5 * p.direction, p.direction), "达到1.5倍波动")
+        } else if (profitForAvgSize > 1) {
+            // 浮盈大于1倍size， 0.4出
+            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到1倍波动")
+        } else if (profitForAvgSize > 0.5) {
+            // 浮盈大于0.5倍size， 0.15出
+            (maxSl(oldSl, p.openAt + profit * 0.3 * p.direction, p.direction), "达到0.5倍波动")
         } else if (profitForAvgSize <= 0.5) {
             // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小
@@ -197,11 +216,12 @@ class MacdStrategy(
         }
     }
 
-    def tickN(k: Kline, n: Int, ks: KlineMetric, macdM: MacdMetric) = {
+    def tickN(k: Kline, n: Int, ks: KlineMetric, macdM: MacdMetric, kdjM: KdjMetric) = {
         val knResult = kn(n)
         // logger.info(s"${symbol} k${n}: ${knResult}")
         ks.tick(knResult)
         macdM.tick(knResult)
+        kdjM.tick(knResult)
     }
 
     def metricTick(k: Kline) = {
@@ -209,13 +229,15 @@ class MacdStrategy(
         // logger.info(s"${symbol} ts: ${startSecondsOfK}")
         klines1.tick(k)
         macd1.tick(k)
-        tickN(k, 5, klines5, macd5)
-        tickN(k, 15, klines15, macd15)
-        tickN(k, 60, klines60, macd60)
-        tickN(k, 240, klines240, macd240)
+        tickN(k, 5, klines5, macd5, kdj5)
+        // tickN(k, 15, klines15, macd15)
+        tickN(k, 30, klines30, macd30,kdj30)
+        // tickN(k, 60, klines60, macd60)
+        // tickN(k, 240, klines240, macd240)
     }
 
     var openTime: ZonedDateTime = null
+    var lastCondition: Boolean = false
     // var lastTick: Kline         = null
 
     def tick(k: Kline, history: Boolean = false): Unit = {
@@ -227,49 +249,34 @@ class MacdStrategy(
         }
 
         // 历史数据不足， 无法参考
-        if (klines240.data.length < 26) {
+        if (klines30.data.length < 26) {
             return
         }
 
         updateSl()
 
-        // macd 颜色 共振
-        // macd 方向 共振
-
-        // val macdColors = Vector(
-        //   macd1.barDirection(),
-        //   macd5.barDirection(),
-        //   macd15.barDirection(),
-        //   macd60.barDirection(),
-        // )
-
         val macdDirections  = Vector(
-          macd1.macdBarTrend(),
           macd5.macdBarTrend(),
-          macd15.macdBarTrend(),
-          macd60.macdBarTrend(),
-          macd240.macdBarTrend()
+          macd30.macdBarTrend(),
         )
-        val macd1Directions = Vector(
-          macd1.macdBarTrend(1),
-          macd5.macdBarTrend(1),
-          macd15.macdBarTrend(1),
-          macd60.macdBarTrend(1),
-          macd240.macdBarTrend(1)
+
+        val kdjDirections = Vector(
+            kdj5.kdjRange(),
+            kdj30.kdjRange(),
         )
+        val direction = if(macdDirections.forall(_ == 1)){
+            1
+        }else if(macdDirections.forall(_ == -1)) {
+            -1
+        }else {
+            0
+        }
+        val condition = direction !=0 && kdjDirections.forall(_ == direction)
 
         val as = avgSize()
-        // 满足开仓条件则平a开b
-        // 同时满足条件很难。
-        if (
-          macdDirections.forall(_ == macdDirections(0)) &&
-          !macd1Directions.forall(_ == macdDirections(0)) && 
-          (klines60.current.close - klines60.current.open).abs < as * 1.5 // 过滤硬拉指标的情况， 宁愿下次再找机会进
-        ) {
+        if (condition && ! lastCondition) {
             if (
-              positionMgr.hasPosition && positionMgr.currentPosition.get.direction != macdDirections(
-                0
-              )
+              positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
             ) {
                 positionMgr.closeCurrent(k, "平仓反手")
             }
@@ -279,15 +286,17 @@ class MacdStrategy(
             ) {
                 return
             }
+
             // 可能会亏损后导致开仓额度不足
             positionMgr.open(
               k,
               k.close,
-              macdDirections(0),
-              Some(k.close - (slFactor * as) * macdDirections(0)),
+              direction,
+              Some(k.close - (slFactor * as) * direction),
               None,
               false
             )
+
             // 休息一分钟
             openTime = ZonedDateTime.now()
         } else {
@@ -295,6 +304,7 @@ class MacdStrategy(
             // 防止平仓后又立马开仓
             checkSl()
         }
+        lastCondition = condition
         // lastTick = k
     }
 }

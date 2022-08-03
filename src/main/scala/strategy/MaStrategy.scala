@@ -28,7 +28,7 @@ class MaStrategy(
     val klines      = KlineMetric()
     val shortMa     = MaMetric(klines, shortMaInterval)
     // val longMa      = MaMetric(klines, longMaInterval)
-    // val macd        = MacdMetric(klines)
+    val macd        = MacdMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
     val slFactor    = 0.3
 
@@ -56,7 +56,7 @@ class MaStrategy(
         klines.tick(k)
         shortMa.tick(k)
         // longMa.tick(k)
-        // macd.tick(k)
+        macd.tick(k)
     }
 
     // 更新止损位
@@ -179,6 +179,7 @@ class MaStrategy(
             checkSl()
 
             val maDirection = shortMa.maDirection()
+            val macdDirection = macd.macdBarTrend(count = 2)
             if (
               openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
             ) {
@@ -189,6 +190,7 @@ class MaStrategy(
 
             if (
               maDirection != 0 &&
+              macdDirection == maDirection &&
               (k.close - shortMa.currentValue) * maDirection < as * 0.3 && // 未远离均线
               (k.close - trendPoint) * maDirection >= as * 0.2             // 有顺势迹象
             ) {

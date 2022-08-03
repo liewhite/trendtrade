@@ -23,7 +23,8 @@ case class AppConfig(
     notifyWebhook:    String,
     heartBeatWebhook: String,
     exceptionWebhook: String,
-    leastSupply:      BigDecimal
+    leastSupply:      BigDecimal,
+    leastOpenedValue: BigDecimal
 )
 
 val logger = Logger("main")
@@ -69,16 +70,16 @@ def start()              = {
     // 持仓小于1000w的忽略
     val validSymbols = allSymbols.filter(item => {
         val value = binanceApi.getOpenInterest(item.symbol)
-        value > 10000000
+        value > cfg.leastOpenedValue
     })
     validSymbols.foreach(println)
     // val validSymbols = Vector(SymbolMeta("BTCUSDT", 0.01, 0.01))
 
     val strategies = validSymbols.map(s => {
-        val bot = MaStrategy(
+        val bot = MacdStrategy(
           s.symbol,
-          interval,
-          cfg.shortMa,
+        //   interval,
+        //   cfg.shortMa,
         //   cfg.midMa,
         //   cfg.longMa,
           cfg.maxHolds,
