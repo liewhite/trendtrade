@@ -14,9 +14,8 @@ import notifier.Notify
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 
-// 双周期macd， kdj共振
-// macd trend同向， kdj金叉区间
-// 1，5，15, 1H, 4H， 1 + 3 个周期反手开仓
+// 小周期底背离
+// 大周期macd trend， kdj共振
 // 跟踪止盈
 class MacdStrategy(
     symbol:          String,
@@ -46,7 +45,7 @@ class MacdStrategy(
     val kdj30 = KdjMetric(klines30)
 
     val logger   = Logger("strategy")
-    val slFactor = 0.5
+    val slFactor = 0.3
 
     val positionMgr = PositionMgr(symbol, trader, maxHolds, ntf, exceptionNotify)
 
@@ -250,7 +249,7 @@ class MacdStrategy(
     }
 
     var openTime: ZonedDateTime = null
-    var lastCondition: Boolean  = false
+    var lastCondition: Option[Boolean]  = None
     // var lastTick: Kline         = null
 
     def tick(k: Kline, history: Boolean = false): Unit = {
@@ -287,37 +286,42 @@ class MacdStrategy(
 
         val as = avgSize()
 
-        val condition     = direction != 0 && kdjDirections.forall(_ == direction) && (k.close - ma30.currentValue) * direction < as
+        val condition = direction != 0 && kdjDirections.forall(
+          _ == direction
+        ) && (k.close - ma30.currentValue) * direction < as
 
-        if (condition && !lastCondition) {
+        if (condition && lastCondition.isDefined && !lastCondition.get ) {
             if (positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction) {
                 positionMgr.closeCurrent(k, "平仓反手")
             }
 
-            if (
-              openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
-            ) {
-                return
-            }
+            // 有 last tick 不满足条件作为前提
+            // if (
+            //   openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
+            // ) {
+            //     return
+            // }
 
             // 可能会亏损后导致开仓额度不足
-            positionMgr.open(
-              k,
-              k.close,
-              direction,
-              Some(k.close - (slFactor * as) * direction),
-              None,
-              false
-            )
+            if (!positionMgr.hasPosition) {
+                positionMgr.open(
+                  k,
+                  k.close,
+                  direction,
+                  Some(k.close - (slFactor * as) * direction),
+                  None,
+                  false
+                )
+            }
 
             // 休息一分钟
-            openTime = ZonedDateTime.now()
+            // openTime = ZonedDateTime.now()
         } else {
             // 不满足开仓条件则判断是否触发了跟踪止盈
             // 防止平仓后又立马开仓
             checkSl()
         }
-        lastCondition = condition
+        lastCondition = Some(condition)
         // lastTick = k
     }
 }

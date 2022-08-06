@@ -13,14 +13,13 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// tick突破所有均线
-// kdj 金叉区间， macd trend 同向
-class MasStrategy(
+// 二连均线方向， 突破均线开仓
+// 收盘跌破均线平仓
+class OldMaStrategy(
     symbol:          String,
     interval:        String,
     shortMaInterval: Int, // 短均线
-    midMaInterval:   Int, // 中均线
-    longMaInterval:  Int, // 长均线
+    // longMaInterval:  Int, // 长均线
     maxHold:         Int,
     trader:          BinanceApi,
     ntf:             Notify,
@@ -28,11 +27,10 @@ class MasStrategy(
 ) {
     val klines      = KlineMetric()
     val shortMa     = MaMetric(klines, shortMaInterval)
-    val midMa       = MaMetric(klines, midMaInterval)
-    val longMa      = MaMetric(klines, longMaInterval)
+    // val longMa      = MaMetric(klines, longMaInterval)
     val macd        = MacdMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
-    val slFactor    = 0.5
+    val slFactor    = 0.3
 
     val logger = Logger("strategy")
 
@@ -57,8 +55,7 @@ class MasStrategy(
     def metricTick(k: Kline) = {
         klines.tick(k)
         shortMa.tick(k)
-        midMa.tick(k)
-        longMa.tick(k)
+        // longMa.tick(k)
         macd.tick(k)
     }
 
@@ -89,7 +86,6 @@ class MasStrategy(
             }
         }
 
-        //  todo 远离均线才止盈
         //  利润 / 平均size, >0盈利， <0 亏损
         val profit           = (k.close - p.openAt) * p.direction
         val profitForAvgSize = profit / as
@@ -102,17 +98,15 @@ class MasStrategy(
             (maxSl(oldSl, p.openAt + profit * 0.8 * p.direction, p.direction), "达到10倍波动")
         } else if (profitForAvgSize > 5) {
             // 浮盈大于5倍k线size, 跟踪止盈到最大盈利的60%
-            (maxSl(oldSl, p.openAt + profit * 0.6 * p.direction, p.direction), "达到5倍波动")
+            (maxSl(oldSl, p.openAt + profit * 0.7 * p.direction, p.direction), "达到5倍波动")
         } else if (profitForAvgSize > 3) {
             // 浮盈大于3倍k线size, 跟踪止盈到最大盈利的40%
-            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到3倍波动")
+            (maxSl(oldSl, p.openAt + profit * 0.6 * p.direction, p.direction), "达到3倍波动")
         } else if (profitForAvgSize > 1.5) {
-            (maxSl(oldSl, p.openAt + profit * 0.3 * p.direction, p.direction), "达到1.5倍波动")
-        } else if (profitForAvgSize > 0.5) {
             // 浮盈大于1倍size， 保本出
-            (maxSl(oldSl, p.openAt + profit * 0.1 * p.direction, p.direction), "达到1.5倍波动")
+            (maxSl(oldSl, p.openAt + profit * 0.5 * p.direction, p.direction), "达到1.5倍波动")
         } else if (profitForAvgSize <= 0.5) {
-            // 几乎无盈利或浮亏， 0.8倍平均size止损
+            // 几乎无盈利或浮亏， 0.3倍平均size止损
             // 当波动越来越小， 止损也越来越小
             // 反之， 波动大， 止损就大， 跟随市场
             (maxSl(oldSl, p.openAt - as * slFactor * p.direction, p.direction), "无浮盈")
@@ -163,83 +157,66 @@ class MasStrategy(
     var openTime: ZonedDateTime = null
     var lastTick: Kline         = null
 
+    // 反转点： 上升趋势的k线最低点， 下降趋势的最高点
+    def trendPoint = {
+        val maDirection = shortMa.maDirection()
+        val k = klines.current
+        if (maDirection == 1) {
+            k.low
+        } else if (maDirection == -1) {
+            k.high
+        } else {
+            // 永远不会满足开仓条件
+            k.close
+        }
+    }
+
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
-        if (!history && klines.data.length >= 60 && lastTick != null) {
+        if (!history && klines.data.length >= 20 && lastTick != null) {
             updateSl()
+            checkSl()
 
-            val macdDirection = macd.macdBarTrend()
-
-            val shortDirection    = (k.close - shortMa.currentValue).signum
-            val midDirection      = (k.close - midMa.currentValue).signum
-            val longDirection     = (k.close - longMa.currentValue).signum
-            val currentDirections = Vector(shortDirection, midDirection, longDirection)
-
-            // 可能上一K线突破了， 但是macd不符合要求
-            // 当前K线再次回踩均线， macd符合要求可以开仓
-
-            val (lastTickShortMa, lastTickMidMa, lastTickLongMa) = if (lastTick.end) {
-                (shortMa.data(1).value, midMa.data(1).value, longMa.data(1).value)
-            } else {
-                (shortMa.currentValue, midMa.currentValue, longMa.currentValue)
-            }
-
-            val lastTickshortDirection = (lastTick.close - lastTickShortMa).signum
-            val lastTickmidDirection   = (lastTick.close - lastTickMidMa).signum
-            val lastTicklongDirection  = (lastTick.close - lastTickLongMa).signum
-            val lastTickDirections     =
-                Vector(lastTickshortDirection, lastTickmidDirection, lastTicklongDirection)
-
-            // 金叉区间， 连续正增长， tick突破所有均线
-            val condition =
-                macdDirection != 0 && macd.barDirection() == macdDirection && currentDirections
-                    .forall(
-                      _ == macdDirection
-                    ) && !lastTickDirections.forall(_ == macdDirection)
-
-            // 不满足开仓条件了， 跟踪止盈
-            if (positionMgr.hasPosition && !condition) {
-                checkSl()
-            }
-
+            val maDirection = shortMa.maDirection()
+            val macdDirection = macd.macdBarTrend(count = 2)
             if (
-              openTime != null && Duration
-                  .between(openTime, ZonedDateTime.now())
-                  .getSeconds() < 60
+              openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
             ) {
                 return
             }
 
-            if (condition) {
+            val as = avgSize()
+
+            if (
+              maDirection != 0 &&
+              macdDirection == maDirection &&
+              (k.close - shortMa.currentValue) * maDirection < as * 0.3 && // 未远离均线
+              (k.close - trendPoint) * maDirection >= as * 0.2             // 有顺势迹象
+            ) {
                 if (
-                  positionMgr.hasPosition && positionMgr.currentPosition.get.direction != macdDirection
+                  positionMgr.hasPosition && positionMgr.currentPosition.get.direction != maDirection
                 ) {
-                    positionMgr.closeCurrent(k, "反手")
+                    positionMgr.closeCurrent(k, "平仓反手")
                 }
                 if (!positionMgr.hasPosition) {
-                    val as = avgSize()
                     positionMgr.open(
                       k,
                       k.close,
-                      macdDirection,
-                      Some(k.close - (slFactor * as) * macdDirection),
+                      maDirection,
+                      Some(k.close - (slFactor * as) * maDirection),
                       None,
-                      false,
-                      s"macd: ${macd.data.slice(0, 4).reverse.map(_.bar).mkString(",")}"
+                      false
                     )
-
                 }
                 // 休息一分钟
                 openTime = ZonedDateTime.now()
-
+            } else {
+                checkSl()
             }
-
         }
 
-        if (!history) {
-            lastTick = k
-        }
+        lastTick = k
     }
 
     def tick(k: Kline, history: Boolean = false): Unit = {

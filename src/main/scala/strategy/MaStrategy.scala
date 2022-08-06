@@ -103,10 +103,16 @@ class MaStrategy(
             // 浮盈大于3倍k线size, 跟踪止盈到最大盈利的40%
             (maxSl(oldSl, p.openAt + profit * 0.6 * p.direction, p.direction), "达到3倍波动")
         } else if (profitForAvgSize > 1.5) {
-            // 浮盈大于1倍size， 保本出
+            // 浮盈大于1倍size， 0.75出
             (maxSl(oldSl, p.openAt + profit * 0.5 * p.direction, p.direction), "达到1.5倍波动")
+        } else if (profitForAvgSize > 1) {
+            // 浮盈大于1倍size， 0.4出
+            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到1倍波动")
+        } else if (profitForAvgSize > 0.5) {
+            // 浮盈大于0.5倍size， 0.15出
+            (maxSl(oldSl, p.openAt + profit * 0.3 * p.direction, p.direction), "达到0.5倍波动")
         } else if (profitForAvgSize <= 0.5) {
-            // 几乎无盈利或浮亏， 0.3倍平均size止损
+            // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小
             // 反之， 波动大， 止损就大， 跟随市场
             (maxSl(oldSl, p.openAt - as * slFactor * p.direction, p.direction), "无浮盈")
@@ -179,7 +185,7 @@ class MaStrategy(
             checkSl()
 
             val maDirection = shortMa.maDirection()
-            val macdDirection = macd.macdBarTrend(count = 2)
+            val ma2Direction = shortMa.maDirection(1)
             if (
               openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
             ) {
@@ -190,7 +196,7 @@ class MaStrategy(
 
             if (
               maDirection != 0 &&
-              macdDirection == maDirection &&
+              ma2Direction == maDirection &&
               (k.close - shortMa.currentValue) * maDirection < as * 0.3 && // 未远离均线
               (k.close - trendPoint) * maDirection >= as * 0.2             // 有顺势迹象
             ) {

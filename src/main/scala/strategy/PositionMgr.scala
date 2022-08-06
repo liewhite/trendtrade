@@ -41,6 +41,7 @@ class PositionMgr(
     }
 
     def loadPosition(): Unit = {
+        currentPosition = None
         logger.info(s"load positions of ${symbol}")
         // 获取持仓,过滤出symbol
         val positions = trader.getPositions(symbol)
