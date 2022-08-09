@@ -96,15 +96,18 @@ class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
         (data(offset).value - data(offset + 1).value).signum
     }
 
-    def maTrend(span: Int = 4,offset: Int = 0): Int = {
-        val sigs = data.slice(offset, offset + span + 1).sliding(2).map(item => {
-            (item(0).value - item(1).value).signum
-        })
-        if(sigs.forall(_ == 1)) {
+    def maTrend(span: Int = 4, offset: Int = 0): Int = {
+        val sigs = data
+            .slice(offset, offset + span + 1)
+            .sliding(2)
+            .map(item => {
+                (item(0).value - item(1).value).signum
+            })
+        if (sigs.forall(_ == 1)) {
             1
-        }else if(sigs.forall(_ == -1)) {
+        } else if (sigs.forall(_ == -1)) {
             -1
-        }else {
+        } else {
             0
         }
     }
@@ -149,15 +152,18 @@ class EmaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ema] {
         (data(offset).value - data(offset + 1).value).signum
     }
 
-    def emaTrend(span: Int = 4,offset: Int = 0): Int = {
-        val sigs = data.slice(offset, offset + span + 1).sliding(2).map(item => {
-            (item(0).value - item(1).value).signum
-        })
-        if(sigs.forall(_ == 1)) {
+    def emaTrend(span: Int = 4, offset: Int = 0): Int = {
+        val sigs = data
+            .slice(offset, offset + span + 1)
+            .sliding(2)
+            .map(item => {
+                (item(0).value - item(1).value).signum
+            })
+        if (sigs.forall(_ == 1)) {
             1
-        }else if(sigs.forall(_ == -1)) {
+        } else if (sigs.forall(_ == -1)) {
             -1
-        }else {
+        } else {
             0
         }
     }
@@ -236,15 +242,15 @@ class MacdMetric(klines: KlineMetric, fast: Int = 12, slow: Int = 26, mid: Int =
         }
     }
 
-    def macdBarTrend(offset: Int = 0, count: Int = 3): Int = {
+    def macdBarTrend(offset: Int = 0, count: Int = 2): Int = {
         val ds = Range(0, count).map(i => {
-            (data(offset+ i).bar - data(offset + i + 1).bar).signum
+            (data(offset + i).bar - data(offset + i + 1).bar).signum
         })
-        if(ds.forall(_ == 1)) {
+        if (ds.forall(_ == 1)) {
             1
-        }else if(ds.forall(_ == -1)) {
+        } else if (ds.forall(_ == -1)) {
             -1
-        }else {
+        } else {
             0
         }
     }
@@ -376,4 +382,71 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
     def dDirection(offset: Int = 0): Int = {
         (data(offset).d - data(offset + 1).d).signum
     }
+}
+
+// 段的定义, 方向, 低点， 高点， 周期数
+case class Segment(
+    direction: Int,     // 方向
+    openK:     Kline,
+    closeK:    Kline,   // 最后一根K的收盘价, 如果还没结束， 就是最新K的收盘价
+    period:    Int,
+    end:       Boolean, // k线是否完成
+    finish:    Boolean  // 段是否完成
+) extends IsEnd {
+    def isEnd: Boolean = isEnd
+
+}
+// 趋势同向的段不创新高则趋势结束
+case class Trend(
+    direction:       Int,
+    trendSegments:   Vector[Segment], // 趋势内包含的段
+    confirmSegments: Vector[Segment], // 确认趋势结束的段
+    end:             Boolean          // 趋势是否结束
+) extends IsEnd {
+    def isEnd: Boolean = isEnd
+}
+
+class SegmentMetric(klines: KlineMetric) extends KBasedMetric[Segment] {
+    override def tick(k: Kline): Unit   = {
+        // 只处理确定的k线,不然的话就要每个tick重组最后两个段
+        if(!k.end) {
+            return
+        }
+        // // 初始段
+        // if (data.isEmpty) {
+        //     // 至少要5根k线才能确定第一段的方向
+        //     } else {
+
+        //         // 不会执行到这里
+        //     }
+        // }else {
+        //     // tick 处理
+        //     if(k.end){
+        //         data.update(0, data(0).copy())
+        //     }
+        //     // 有进行中的段
+        //     // 1. 段延伸
+        //     val lastDirection = data(0).direction
+        //     val currentDirection = (klines.data(0).close - klines.data(4).close).signum
+        //     if(lastDirection == currentDirection) {
+
+        //     }
+
+        //     // 2. 段破坏， 开启新的段
+        // }
+    }
+    // 如果最新段不成立， 合并最后两段
+    def mergeLast2Segs(): Unit          = {
+        if (data.length < 2) {
+            return
+        }
+        if (data(0).finish) {
+
+        }
+    }
+    // 计算下一段
+    def next(k: Kline): Option[Segment] = {
+        ???
+    }
+
 }
