@@ -362,8 +362,15 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
     }
 
     // kdj排列，金叉区间还是死叉区间
-    def kdjRange(offset: Int = 0): Int = {
-        (data(offset).j - data(offset).d).signum
+    def kdjRange(offset: Int = 0, strict: Boolean = true): Int = {
+        val d = (data(offset).j - data(offset).d).signum
+        if (d == 1 && data(offset).j < 60) {
+            1
+        } else if (d == -1 && data(offset).j > 60) {
+            -1
+        } else {
+            0
+        }
     }
 
     // kdj 收敛至少两个周期
@@ -384,69 +391,102 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
     }
 }
 
-// 段的定义, 方向, 低点， 高点， 周期数
-case class Segment(
-    direction: Int,     // 方向
-    openK:     Kline,
-    closeK:    Kline,   // 最后一根K的收盘价, 如果还没结束， 就是最新K的收盘价
-    period:    Int,
-    end:       Boolean, // k线是否完成
-    finish:    Boolean  // 段是否完成
-) extends IsEnd {
-    def isEnd: Boolean = isEnd
-
-}
-// 趋势同向的段不创新高则趋势结束
-case class Trend(
-    direction:       Int,
-    trendSegments:   Vector[Segment], // 趋势内包含的段
-    confirmSegments: Vector[Segment], // 确认趋势结束的段
-    end:             Boolean          // 趋势是否结束
+// 缠中说禅k线， 只有高低点， 没有影线、阴阳
+case class CzscK(
+    datetime: ZonedDateTime,
+    low:      BigDecimal,
+    high:     BigDecimal,
+    close:    BigDecimal,
+    end:      Boolean
 ) extends IsEnd {
     def isEnd: Boolean = isEnd
 }
 
-class SegmentMetric(klines: KlineMetric) extends KBasedMetric[Segment] {
-    override def tick(k: Kline): Unit   = {
-        // 只处理确定的k线,不然的话就要每个tick重组最后两个段
-        if(!k.end) {
-            return
-        }
-        // // 初始段
-        // if (data.isEmpty) {
-        //     // 至少要5根k线才能确定第一段的方向
-        //     } else {
+class CzscKMetric(klines: KlineMetric) extends KBasedMetric[CzscK] {
 
-        //         // 不会执行到这里
-        //     }
-        // }else {
-        //     // tick 处理
-        //     if(k.end){
-        //         data.update(0, data(0).copy())
-        //     }
-        //     // 有进行中的段
-        //     // 1. 段延伸
-        //     val lastDirection = data(0).direction
-        //     val currentDirection = (klines.data(0).close - klines.data(4).close).signum
-        //     if(lastDirection == currentDirection) {
+    override def next(k: Kline): Option[CzscK] = ???
 
-        //     }
+    def isContains: Boolean = {
+        val highDirection = (klines.data(0).high - data(0).high).signum
+        val lowDirection  = (klines.data(0).low - data(0).low).signum
 
-        //     // 2. 段破坏， 开启新的段
-        // }
-    }
-    // 如果最新段不成立， 合并最后两段
-    def mergeLast2Segs(): Unit          = {
-        if (data.length < 2) {
-            return
-        }
-        if (data(0).finish) {
-
-        }
-    }
-    // 计算下一段
-    def next(k: Kline): Option[Segment] = {
-        ???
+        // if( (highDirection >= 0 && lowDirection <= 0) || (highDirection <= 0 && lowDirection >= 0)) {
+        highDirection * lowDirection <= 0
     }
 
+    // 是否处于分型确认， 严格或非严格模式
+    def fenxing(strict: Boolean = true): Int = {
+        if (data.length < 3) {
+            0
+        } else {
+            val k0 = data(0)
+            val k1 = data(1)
+            val k2 = data(2)
+            if (k1.high > Vector(k0.high, k2.high).max && k1.low > Vector(k0.low, k2.low).max) {
+                // k1 低点高点都是最高， 顶分型
+                if (strict && k0.low > (k2.high + k2.low) / 2) {
+                    0
+                } else {
+                    -1
+                }
+            } else if (
+              k1.high < Vector(k0.high, k2.high).min && k1.low < Vector(k0.low, k2.low).min
+            ) {
+                // k1 低点高点都是最低， 底分型
+                if (strict && k0.high < (k2.high + k2.low) / 2) {
+                    0
+                } else {
+                    1
+                }
+            } else {
+                0
+            }
+        }
+    }
+
+    override def tick(k: Kline): Unit = {
+        if (k.end) {
+            if (data.isEmpty) {
+                data.prepend(CzscK(k.datetime, k.low, k.high, k.close, true))
+            } else {
+                println(isContains)
+                if (isContains) {
+                    val direction = if (data.length == 1) {
+                        if (klines.data(0).close > data(0).close) {
+                            1
+                        } else {
+                            -1
+                        }
+                    } else {
+                        if (data(0).high > data(1).high) {
+                            1
+                        } else {
+                            -1
+                        }
+                    }
+
+                    val newK = if (direction == 1) {
+                        CzscK(
+                          k.datetime,
+                          Vector(klines.data(0).low, data(0).low).max,
+                          Vector(klines.data(0).high, data(0).high).max,
+                          klines.data(0).close,
+                          true
+                        )
+                    } else {
+                        CzscK(
+                          k.datetime,
+                          Vector(klines.data(0).low, data(0).low).min,
+                          Vector(klines.data(0).high, data(0).high).min,
+                          klines.data(0).close,
+                          true
+                        )
+                    }
+                    data.update(0, newK)
+                } else {
+                    data.prepend(CzscK(k.datetime, k.low, k.high, k.close, true))
+                }
+            }
+        }
+    }
 }

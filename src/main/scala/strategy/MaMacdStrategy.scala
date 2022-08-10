@@ -74,6 +74,13 @@ class MaMacdStrategy(
         avgEntitySize
     }
 
+    def maAvgChange(): BigDecimal = {
+        val items = ma.data.take(20)
+        items.sliding(2).map(t => {
+            (t(0).value - t(1).value).abs
+        }).sum / items.length
+    }
+
     var lastTick: Kline = null
 
     def checkClose(): Unit = {

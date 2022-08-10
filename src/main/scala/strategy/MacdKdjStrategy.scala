@@ -17,21 +17,17 @@ import java.time.ZonedDateTime
 class MacdKdjStrategy(
     symbol:          String,
     interval:        String,
-    // shortMaInterval: Int, // 短均线
-    // longMaInterval:  Int, // 长均线
     maxHold:         Int,
     trader:          BinanceApi,
     ntf:             Notify,
     exceptionNotify: Notify
 ) {
     val klines      = KlineMetric()
-    // val shortMa     = MaMetric(klines, shortMaInterval)
-    // val longMa      = MaMetric(klines, longMaInterval)
     val macd        = MacdMetric(klines)
     val kdj         = KdjMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
-    val slFactor    = 1.5
-    val tpFactor    = 1.75
+    val slFactor    = 0.75
+    val tpFactor    = 1.5
 
     val logger = Logger("strategy")
 
@@ -93,17 +89,25 @@ class MacdKdjStrategy(
             val ds             = Vector(macdDirection, kdjDirection)
             val ds1            = Vector(macd1Direction, kdj1Direction)
 
-            // 上一K不满足条件， 上一tick也不满足， 只有当前满足
-            val direction = if (ds.forall(_ == 1) && !ds1.forall(_ == 1)) {
+            val direction = if (ds.forall(_ == 1)) {
                 1
-            } else if (ds.forall(_ == -1) && !ds1.forall(_ == -1)) {
+            } else if (ds.forall(_ == -1)) {
+                -1
+            } else {
+                0
+            }
+            val lastKDirection = if (ds1.forall(_ == 1)) {
+                1
+            } else if (ds1.forall(_ == -1)) {
                 -1
             } else {
                 0
             }
 
+            // 上一K不满足条件， 上一tick也不满足， 只有当前满足
             if (
               direction != 0 &&
+              lastKDirection != direction &&
               lastTickDirection.nonEmpty &&
               lastTickDirection.get != direction &&
               !(openTime != null &&
