@@ -68,12 +68,12 @@ def start()              = {
     // println(binanceApi.supply(1))
 
     // 持仓小于1000w的忽略
-    // val validSymbols = allSymbols.filter(item => {
-    //     val value = binanceApi.getOpenInterest(item.symbol)
-    //     value > cfg.leastOpenedValue
-    // })
-    // validSymbols.foreach(println)
-    val validSymbols = Vector(SymbolMeta("BTCUSDT", 0.01, 0.01))
+    val validSymbols = allSymbols.filter(item => {
+        val value = binanceApi.getOpenInterest(item.symbol)
+        value > cfg.leastOpenedValue
+    })
+    validSymbols.foreach(println)
+    // val validSymbols = Vector(SymbolMeta("XRPUSDT", 0.01, 0.01))
 
     val strategies = validSymbols.map(s => {
         val bot = ZsStrategy(

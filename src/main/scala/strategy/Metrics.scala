@@ -415,6 +415,7 @@ class CzscKMetric(klines: KlineMetric) extends KBasedMetric[CzscK] {
     }
 
     // 是否处于分型确认， 严格或非严格模式
+    // 可能连续两个同向分型， 因为k线合并后再次触发分型
     def fenxing(strict: Boolean = true): Int = {
         if (data.length < 3) {
             0
@@ -449,7 +450,6 @@ class CzscKMetric(klines: KlineMetric) extends KBasedMetric[CzscK] {
             if (data.isEmpty) {
                 data.prepend(CzscK(k.datetime, k.low, k.high, k.close, true))
             } else {
-                println(isContains)
                 if (isContains) {
                     val direction = if (data.length == 1) {
                         if (klines.data(0).close > data(0).close) {

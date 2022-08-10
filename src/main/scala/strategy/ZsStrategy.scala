@@ -82,6 +82,9 @@ class ZsStrategy(
 
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
+        // if(k.end) {
+        //     println(s"${k.datetime} ${czscK.fenxing()}")
+        // }
         // return
         // 忽略历史数据， 只处理实时数据
         if (!history && klines.data.length >= 20 && k.end) {
