@@ -13,24 +13,19 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// 均线方向， 价格有成本优势
-// 价格必须比k线最低点高0.25
 class MaStrategy(
     symbol:          String,
     interval:        String,
-    shortMaInterval: Int, // 短均线
-    // longMaInterval:  Int, // 长均线
+    maInterval:      Int,
     maxHold:         Int,
     trader:          BinanceApi,
     ntf:             Notify,
     exceptionNotify: Notify
 ) {
     val klines      = KlineMetric()
-    val shortMa     = MaMetric(klines, shortMaInterval)
-    // val longMa      = MaMetric(klines, longMaInterval)
+    val ma          = EmaMetric(klines, maInterval)
     val macd        = MacdMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
-    val slFactor    = 0.3
 
     val logger = Logger("strategy")
 
@@ -54,78 +49,45 @@ class MaStrategy(
 
     def metricTick(k: Kline) = {
         klines.tick(k)
-        shortMa.tick(k)
+        ma.tick(k)
         // longMa.tick(k)
         macd.tick(k)
     }
 
-    // 更新止损位
+    // 根据远离均线的程度， 保护利润
+    // 以k线最远端为准, 当均线逐渐跟上来， 止盈就放松了
     def updateSl(): Unit = {
         if (!positionMgr.hasPosition) {
             return
         }
-
-        val k     = klines.data(0)
-        val as    = avgSize()
-        val p     = positionMgr.currentPosition.get
+        val k           = klines.data(0)
+        val as          = avgSize()
+        val p           = positionMgr.currentPosition.get
         // load position 的时候没有止损
-        val oldSl = p.stopLoss match {
-            case None    => p.openAt - p.direction * as * slFactor
-            case Some(o) => o
-        }
-
-        def maxSl(o: BigDecimal, n: BigDecimal, d: Int): BigDecimal = {
-            if (d == 1) {
-                // 多单， 取最大值
-                Vector(o, n).max
-            } else if (d == -1) {
-                // 空单， 取最小值
-                Vector(o, n).min
-            } else {
-                throw Exception(s"持仓方向为0: ${p}")
-            }
-        }
-
-        //  利润 / 平均size, >0盈利， <0 亏损
-        val profit           = (k.close - p.openAt) * p.direction
-        val profitForAvgSize = profit / as
-
-        val (newSl, reason) = if (profitForAvgSize > 20) {
-            // 浮盈大于20倍k线size, 跟踪止盈到最大盈利的90%
-            (maxSl(oldSl, p.openAt + profit * 0.9 * p.direction, p.direction), "达到20倍波动")
-        } else if (profitForAvgSize > 10) {
-            // 浮盈大于10倍k线size, 跟踪止盈到最大盈利的80%
-            (maxSl(oldSl, p.openAt + profit * 0.8 * p.direction, p.direction), "达到10倍波动")
-        } else if (profitForAvgSize > 5) {
-            // 浮盈大于5倍k线size, 跟踪止盈到最大盈利的60%
-            (maxSl(oldSl, p.openAt + profit * 0.7 * p.direction, p.direction), "达到5倍波动")
-        } else if (profitForAvgSize > 3) {
-            // 浮盈大于3倍k线size, 跟踪止盈到最大盈利的40%
-            (maxSl(oldSl, p.openAt + profit * 0.6 * p.direction, p.direction), "达到3倍波动")
-        } else if (profitForAvgSize > 1.5) {
-            // 浮盈大于1倍size， 0.75出
-            (maxSl(oldSl, p.openAt + profit * 0.5 * p.direction, p.direction), "达到1.5倍波动")
-        } else if (profitForAvgSize > 1) {
-            // 浮盈大于1倍size， 0.4出
-            (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到1倍波动")
-        } else if (profitForAvgSize > 0.5) {
-            // 浮盈大于0.5倍size， 0.15出
-            (maxSl(oldSl, p.openAt + profit * 0.3 * p.direction, p.direction), "达到0.5倍波动")
-        } else if (profitForAvgSize <= 0.5) {
-            // 几乎无盈利或浮亏， 0.8倍平均size止损
-            // 当波动越来越小， 止损也越来越小
-            // 反之， 波动大， 止损就大， 跟随市场
-            (maxSl(oldSl, p.openAt - as * slFactor * p.direction, p.direction), "无浮盈")
+        // 不设止损， 只在跌破均线且macd转向时平仓
+        val basePrice   = if (p.direction == 1) {
+            k.high
         } else {
-            // 应该不会执行到这里
-            (oldSl, "无止损调节需求")
+            k.low
         }
-        if (newSl != oldSl) {
+        val offsetValue = (basePrice - ma.current.value) * p.direction
+        val offsetRatio = offsetValue / as
+
+        val (newSl, reason) = if (offsetRatio > 10) {
+            (Some(ma.current.value + offsetValue * 0.9 * p.direction), "偏离均线达到10倍波动")
+        } else if (offsetRatio > 5) {
+            (Some(ma.current.value + offsetValue * 0.8 * p.direction), "偏离均线达到5倍波动")
+        } else if (offsetRatio > 3) {
+            (Some(ma.current.value + offsetValue * 0.7 * p.direction), "偏离均线达到3倍波动")
+        } else {
+            (None, "回归均线，无需设置止盈")
+        }
+        if (newSl != p.stopLoss) {
             ntf.sendNotify(
-              s"${symbol} 利润: ${profit} 平均波动: ${as} 移动止损位: ${oldSl} -> ${newSl}, 原因: ${reason}"
+              s"${symbol} 偏离均线倍数: ${offsetRatio} 平均波动: ${as} 移动止损位: ${p.stopLoss} -> ${newSl}, 原因: ${reason}"
             )
         }
-        positionMgr.updateSl(Some(newSl))
+        positionMgr.updateSl(newSl)
     }
 
     def checkSl(): Boolean = {
@@ -133,7 +95,7 @@ class MaStrategy(
             val k            = klines.data(0)
             val p            = positionMgr.currentPosition.get
             val currentPrice = k.close
-            if ((currentPrice - p.stopLoss.get) * p.direction < 0) {
+            if (p.stopLoss.nonEmpty && (currentPrice - p.stopLoss.get) * p.direction < 0) {
                 positionMgr.closeCurrent(k, "触发移动止盈平仓")
                 true
             } else {
@@ -142,6 +104,21 @@ class MaStrategy(
         } else {
             false
         }
+    }
+
+    // 平仓判定
+    def checkClose() = {
+        val k = klines.data(0)
+        // 收盘跌破均线
+        if (positionMgr.hasPosition && k.end) {
+            val p       = positionMgr.currentPosition.get
+            val maValue = ma.current.value
+
+            if ((k.close - maValue) * p.direction < 0) {
+                positionMgr.closeCurrent(k, "跌破均线")
+            }
+        }
+
     }
 
     // 除当前K外的最近k线平均大小
@@ -163,20 +140,6 @@ class MaStrategy(
     var openTime: ZonedDateTime = null
     var lastTick: Kline         = null
 
-    // 反转点： 上升趋势的k线最低点， 下降趋势的最高点
-    def trendPoint = {
-        val maDirection = shortMa.maDirection()
-        val k = klines.current
-        if (maDirection == 1) {
-            k.low
-        } else if (maDirection == -1) {
-            k.high
-        } else {
-            // 永远不会满足开仓条件
-            k.close
-        }
-    }
-
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
@@ -184,21 +147,26 @@ class MaStrategy(
             updateSl()
             checkSl()
 
-            val maDirection = shortMa.maDirection()
-            val ma2Direction = shortMa.maDirection(1)
+            val maDirection   = ma.emaDirection()
+            val macdDirection = macd.macdBarTrend()
             if (
-              openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 60
+              openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 10
             ) {
                 return
             }
 
-            val as = avgSize()
+            val as     = avgSize()
+            val lastMa = if (lastTick.end) {
+                ma.data(1).value
+            } else {
+                ma.current.value
+            }
 
             if (
               maDirection != 0 &&
-              ma2Direction == maDirection &&
-              (k.close - shortMa.currentValue) * maDirection < as * 0.3 && // 未远离均线
-              (k.close - trendPoint) * maDirection >= as * 0.2             // 有顺势迹象
+              macdDirection == maDirection &&                   // 均线方向与macd一致
+              (k.close - ma.current.value) * maDirection > 0 && // 突破均线
+              (lastTick.close - lastMa) * maDirection <= 0      // 上一tick未突破均线
             ) {
                 if (
                   positionMgr.hasPosition && positionMgr.currentPosition.get.direction != maDirection
@@ -210,7 +178,7 @@ class MaStrategy(
                       k,
                       k.close,
                       maDirection,
-                      Some(k.close - (slFactor * as) * maDirection),
+                      None,
                       None,
                       false
                     )
@@ -218,11 +186,13 @@ class MaStrategy(
                 // 休息一分钟
                 openTime = ZonedDateTime.now()
             } else {
-                checkSl()
+                checkClose()
             }
         }
+        if (!history) {
+            lastTick = k
+        }
 
-        lastTick = k
     }
 
     def tick(k: Kline, history: Boolean = false): Unit = {

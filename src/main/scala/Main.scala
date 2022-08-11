@@ -48,6 +48,7 @@ def start()              = {
       cfg.apiKey,
       cfg.apiSecret,
       cfg.leverage,
+      exceptionBot,
       heartBeatBot,
       cfg.quoteSymbol,
       cfg.leastSupply
@@ -76,7 +77,7 @@ def start()              = {
     // val validSymbols = Vector(SymbolMeta("XRPUSDT", 0.01, 0.01))
 
     val strategies = validSymbols.map(s => {
-        val bot = ZsStrategy(
+        val bot = MaStrategy(
           s.symbol,
           interval,
           // cfg.shortMa,

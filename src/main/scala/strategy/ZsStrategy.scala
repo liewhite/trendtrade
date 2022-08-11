@@ -13,10 +13,14 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
+// 考虑怎么长线持仓
+// 
+
 // 基于中枢的策略
-// 选择一个均线作为中枢
-// 价格离开中枢，当出现反向分型, 收盘k线与中枢没有交集， 且macd开始衰竭, 开仓, 回到中枢时后出现反向分型， 且macd反向运动， 平仓
-// 如果顶分型后没有回到中枢，就出现了底分型， 平仓， 如果macd顺势， 则当作第三类买卖点
+// 均线具有吸附作用， 所以当价格远离均线， 出现衰竭时可以反向开仓
+// 均线还具有支撑作用， 当价格吸附到均线附近但是再次出现远离,即出现支撑作用，可能要发生单边行情， 顺势开仓
+// 有幅度要求， 即吸附原则开仓时， 必须远离一定的距离， 才有盈利空间
+// 当支撑原则开仓时， 要求价格一定是从远处吸附过来再形成支撑的
 class ZsStrategy(
     symbol:          String,
     interval:        String,
@@ -80,6 +84,9 @@ class ZsStrategy(
         (positionMgr.currentPosition.get.openAt - klines.current.close) > 0
     }
 
+    var lastDi: Option[BigDecimal]   = None
+    var lastDing: Option[BigDecimal] = None
+
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // if(k.end) {
@@ -120,7 +127,7 @@ class ZsStrategy(
                 // 一类买卖点, 分型方向与偏离方向相反
                 // 价格偏离达到一定程度， 并且出现反向分型 + macd
                 if (
-                  (k.close - (zs.currentValue - as * fenxing)).signum == -fenxing && macdDirection == fenxing
+                  (k.close - (zs.currentValue - as * fenxing)) * fenxing < 0 && macdDirection == fenxing
                 ) {
                     positionMgr.open(
                       k,
@@ -128,21 +135,49 @@ class ZsStrategy(
                       fenxing,
                       None,
                       None,
-                      false
+                      false,
+                      s"一类, 平均波动${as}, 距离均线 ${(k.close - zs.currentValue).abs}"
                     )
-                } else if (
-                  (k.close - (zs.currentValue + 0.2 * as * fenxing)).signum == -fenxing && macdDirection == fenxing
-                ) {
-                // 三类买卖点， 分型方向与偏离方向相同
-                    positionMgr.open(
-                      k,
-                      k.close,
-                      fenxing,
-                      None,
-                      None,
-                      false
-                    )
+                } else if (macdDirection == fenxing) {
+                    // 三类买卖点， 分型方向与偏离方向相同
+                    // 要求分型的最低点不能与中枢有交集
+                    val k1 = czscK.data(1)
+                    // 底分型收盘大于中枢
+                    // 且上一个顶分型收盘价高于当前价
+                    if (fenxing == 1) {
+                        if (
+                          k.close > zs.currentValue && lastDing.nonEmpty && k.close < lastDing.get
+                        ) {
+                            positionMgr.open(
+                              k,
+                              k.close,
+                              fenxing,
+                              None,
+                              None,
+                              false,
+                              "三类"
+                            )
+                        }
+                    } else {
+                        if (k.close < zs.currentValue && lastDi.nonEmpty && k.close > lastDi.get) {
+                            positionMgr.open(
+                              k,
+                              k.close,
+                              fenxing,
+                              None,
+                              None,
+                              false,
+                              "三类"
+                            )
+                        }
+
+                    }
                 }
+            }
+            if (fenxing == 1) {
+                lastDi = Some(k.close)
+            } else if (fenxing == -1) {
+                lastDing = Some(k.close)
             }
         }
     }

@@ -146,6 +146,7 @@ trait BinanceApi(
     val apiKey:    String,
     val apiSecret: String,
     val leverage:  Int,
+    importNtf:     Notify,
     ntf:           Notify,
     quoteSymbol:   String,
     totalSupply:   BigDecimal
@@ -684,7 +685,7 @@ trait BinanceApi(
             .send(backend)
         val res       = response.body
         logger.info(s"补充保证金: ${response.code}, ${res}")
-        ntf.sendNotify(s"补充保证金: ${response.code}, ${res}")
+        importNtf.sendNotify(s"补充保证金: ${amount}, 结果: ${response.code}, ${res}")
     }
 
     // 补充合约账户余额

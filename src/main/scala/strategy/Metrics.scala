@@ -402,6 +402,18 @@ case class CzscK(
     def isEnd: Boolean = isEnd
 }
 
+// 缠中说禅分型
+case class CzscFx(
+    datetime:  ZonedDateTime,
+    k0:        CzscK,
+    k1:        CzscK,
+    k2:        CzscK,
+    direction: BigDecimal,
+    end:       Boolean
+) extends IsEnd {
+    def isEnd: Boolean = isEnd
+}
+
 class CzscKMetric(klines: KlineMetric) extends KBasedMetric[CzscK] {
 
     override def next(k: Kline): Option[CzscK] = ???
