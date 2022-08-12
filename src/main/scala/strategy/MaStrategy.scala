@@ -23,7 +23,7 @@ class MaStrategy(
     exceptionNotify: Notify
 ) {
     val klines      = KlineMetric()
-    val ma          = EmaMetric(klines, maInterval)
+    val ma          = MaMetric(klines, maInterval)
     val macd        = MacdMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
 
@@ -147,7 +147,7 @@ class MaStrategy(
             updateSl()
             checkSl()
 
-            val maDirection   = ma.emaDirection()
+            val maDirection   = ma.maDirection()
             val macdDirection = macd.macdBarTrend()
             if (
               openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 10
