@@ -13,6 +13,7 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
+// 开仓改进： 均线顺势， 价格在均线附近或负偏离状态， 价格离k线端点有一定距离
 class MaStrategy(
     symbol:          String,
     interval:        String,
@@ -161,12 +162,21 @@ class MaStrategy(
             } else {
                 ma.current.value
             }
+            val basePrice = if(maDirection == 1) {
+                k.low
+            }else if(maDirection == -1) {
+                k.high
+            }else {
+                BigDecimal(0)
+            }
 
             if (
               maDirection != 0 &&
               macdDirection == maDirection &&                   // 均线方向与macd一致
-              (k.close - ma.current.value) * maDirection > 0 && // 突破均线
-              (lastTick.close - lastMa) * maDirection <= 0      // 上一tick未突破均线
+              (k.close - ma.currentValue) * maDirection < 0.3 * as && // 价格在成本优势区间
+              (k.close - basePrice) * maDirection > 0.2 * as  // 正向波动
+            //   (k.close - ma.current.value) * maDirection > 0 && // 突破均线
+            //   (lastTick.close - lastMa) * maDirection <= 0      // 上一tick未突破均线
             ) {
                 if (
                   positionMgr.hasPosition && positionMgr.currentPosition.get.direction != maDirection

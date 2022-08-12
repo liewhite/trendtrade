@@ -458,9 +458,9 @@ trait BinanceApi(
         }
     }
 
-    // (total, available)
-    def getTotalBalance(): (BigDecimal, BigDecimal) = {
 
+
+    def doGetTotalBalance(): (BigDecimal, BigDecimal) = {
         val req     = uri"${binanceHttpBaseUrl}/fapi/v2/balance"
         val signed  = signReq(req)
         val lres    = quickRequest
@@ -476,6 +476,27 @@ trait BinanceApi(
             (0, 0)
         } else {
             (BigDecimal(busdRes(0).balance), BigDecimal(busdRes(0).availableBalance))
+        }
+
+    }
+
+    var balance: (BigDecimal, BigDecimal) = (0,0)
+    var balanceLastUpdateTime: ZonedDateTime = ZonedDateTime.now().minusHours(1)
+    val balanceLock = Object()
+
+    // (total, available)
+    // 缓存5s，开仓失败就失败吧
+    def getTotalBalance(): (BigDecimal, BigDecimal) = {
+        balanceLock.synchronized{
+            val now = ZonedDateTime.now()
+            if(Duration.between(balanceLastUpdateTime, now).getSeconds() > 5 ) {
+                val (total, current) = doGetTotalBalance()
+                balance = (total, current)
+                balanceLastUpdateTime = now
+                (total, current)
+            }else {
+                balance
+            }
         }
     }
 
