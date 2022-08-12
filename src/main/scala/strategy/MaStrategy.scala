@@ -138,30 +138,18 @@ class MaStrategy(
         avgEntitySize
     }
 
-    var openTime: ZonedDateTime = null
-    var lastTick: Kline         = null
-
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
-        if (!history && klines.data.length >= 20 && lastTick != null) {
+        if (!history && klines.data.length >= 20) {
             updateSl()
             checkSl()
 
             val maDirection   = ma.maDirection()
+            // 需要一个稳定的方向， 就算突破时macd不对， 多半也会回来接上车， 那时macd就对了。
             val macdDirection = macd.macdBarTrend()
-            if (
-              openTime != null && Duration.between(openTime, ZonedDateTime.now()).getSeconds() < 10
-            ) {
-                return
-            }
 
             val as     = avgSize()
-            val lastMa = if (lastTick.end) {
-                ma.data(1).value
-            } else {
-                ma.current.value
-            }
             val basePrice = if(maDirection == 1) {
                 k.low
             }else if(maDirection == -1) {
@@ -193,16 +181,10 @@ class MaStrategy(
                       false
                     )
                 }
-                // 休息一分钟
-                openTime = ZonedDateTime.now()
             } else {
                 checkClose()
             }
         }
-        if (!history) {
-            lastTick = k
-        }
-
     }
 
     def tick(k: Kline, history: Boolean = false): Unit = {
