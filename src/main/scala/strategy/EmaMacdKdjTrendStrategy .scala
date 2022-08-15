@@ -13,10 +13,10 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// macd trend kdj.d 方向一致
-// 价格合理， 价格运动方向一致， 开仓
-// 阴线跌破均线且不再满足开仓条件， 平仓
-class MaStrategy(
+// ema macd kdj同向且离均线不远时开仓
+// 收盘有两个指标被破坏平仓
+// 插针利润保护
+class EmaMacdKdjTrendStrategy(
     symbol:          String,
     interval:        String,
     maInterval:      Int,
@@ -26,7 +26,7 @@ class MaStrategy(
     exceptionNotify: Notify
 ) {
     val klines      = KlineMetric()
-    val ma          = MaMetric(klines, maInterval)
+    val ma          = EmaMetric(klines, maInterval)
     val macd        = MacdMetric(klines)
     val kdj         = KdjMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
@@ -110,14 +110,15 @@ class MaStrategy(
         }
     }
 
+    def directions = {
+        Vector(kdj.dDirection(), macd.macdBarTrend(), ma.emaDirection())
+    }
+
     def baseDirection: Int = {
-        val kdjDirection  = kdj.dDirection()
-        val macdDirection = macd.macdBarTrend()
-        if (
-          kdjDirection != 0 &&          // kdj.d方向
-          macdDirection == kdjDirection // kdj.d方向与macd一致
-        ) {
-            macdDirection
+        if (directions.forall(_ == 1)) {
+            1
+        } else if (directions.forall(_ == -1)) {
+            -1
         } else {
             0
         }
@@ -129,21 +130,13 @@ class MaStrategy(
 
         val k = klines.current
 
-        val as        = avgSize()
-        val direction = baseDirection
-
-        val basePrice = if (baseDirection == 1) {
-            k.low
-        } else if (baseDirection == -1) {
-            k.high
-        } else {
-            BigDecimal(0)
-        }
+        val as          = avgSize()
+        val direction   = baseDirection
+        val maDirection = ma.emaDirection
 
         if (
           baseDirection != 0 &&
-          (k.close - ma.currentValue) * baseDirection < 0.3 * as && // 价格在成本优势区间, 尽量不放过趋势, 要求胜率的话可以设置为负数
-          (k.close - basePrice) * baseDirection > 0.2 * as          // 正向波动
+          (k.close - ma.current.value) * baseDirection < 0.3 * as // 价格在成本优势区间, 尽量不放过趋势, 要求胜率的话可以设置为负数
         ) {
             baseDirection
         } else {
@@ -154,16 +147,13 @@ class MaStrategy(
     // 平仓判定
     def checkClose() = {
         val k = klines.data(0)
-        // 收盘跌破均线
         if (positionMgr.hasPosition && k.end) {
             val p       = positionMgr.currentPosition.get
             val maValue = ma.current.value
-
-            // 均线劣势侧收反向K线
+            // 收盘至少两个指标被破坏, 且跌破均线
             if (
-              (k.close - maValue) * p.direction < 0 &&
-              (k.close - k.open) * p.direction < 0 &&
-              baseDirection != p.direction // kdj macd 不再一致支持持仓了
+              directions.count(_ == p.direction) < 2 &&
+              (k.close - maValue) * p.direction < 0
             ) {
                 positionMgr.closeCurrent(k, "跌破均线")
             }

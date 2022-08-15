@@ -13,10 +13,10 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// macd trend kdj.d 方向一致
-// 价格合理， 价格运动方向一致， 开仓
-// 阴线跌破均线且不再满足开仓条件， 平仓
-class MaStrategy(
+// 开仓 macd trend kdj盘中 同向, 如果均线顺势， 则允许正偏离均线一点， 如果逆势， 则必须负偏离均线一个size 以上
+// 插针行情利润保护
+// 亏损 + 逆势状态， 收盘指标不满足立即平仓
+class MacdKdjTrendStrategy(
     symbol:          String,
     interval:        String,
     maInterval:      Int,
@@ -131,24 +131,22 @@ class MaStrategy(
 
         val as        = avgSize()
         val direction = baseDirection
+        val maDirection = ma.maDirection
+        // 顺势， 允许少许正偏离
+        // if(maDirection == direction){
 
-        val basePrice = if (baseDirection == 1) {
-            k.low
-        } else if (baseDirection == -1) {
-            k.high
-        } else {
-            BigDecimal(0)
-        }
+        // }
 
-        if (
-          baseDirection != 0 &&
-          (k.close - ma.currentValue) * baseDirection < 0.3 * as && // 价格在成本优势区间, 尽量不放过趋势, 要求胜率的话可以设置为负数
-          (k.close - basePrice) * baseDirection > 0.2 * as          // 正向波动
-        ) {
-            baseDirection
-        } else {
-            0
-        }
+        // if (
+        //   baseDirection != 0 &&
+        //   (k.close - ma.currentValue) * baseDirection < 0.3 * as && // 价格在成本优势区间, 尽量不放过趋势, 要求胜率的话可以设置为负数
+        //   (k.close - basePrice) * baseDirection > 0.2 * as          // 正向波动
+        // ) {
+        //     baseDirection
+        // } else {
+        //     0
+        // }
+        ???
     }
 
     // 平仓判定
