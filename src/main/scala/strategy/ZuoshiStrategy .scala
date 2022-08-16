@@ -13,11 +13,7 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// ema macd kdj同向且离均线不远时开仓
-// 收盘有两个指标被破坏平仓
-// 插针利润保护
-// 过去5根K线的收盘价最大值跟当前价的差距不能过大
-class EmaMacdKdjTrendStrategy(
+class ZuoshiStrategy(
     symbol:          String,
     interval:        String,
     maInterval:      Int,
@@ -27,7 +23,7 @@ class EmaMacdKdjTrendStrategy(
     exceptionNotify: Notify
 ) {
     val klines      = KlineMetric()
-    val ma          = EmaMetric(klines, maInterval)
+    val ma          = MaMetric(klines, maInterval)
     val macd        = MacdMetric(klines)
     val kdj         = KdjMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
@@ -112,7 +108,7 @@ class EmaMacdKdjTrendStrategy(
     }
 
     def directions = {
-        Vector(kdj.dDirection(), macd.macdBarTrend(), ma.emaDirection())
+        Vector(kdj.dDirection(), macd.macdBarTrend(), ma.maDirection())
     }
 
     def baseDirection: Int = {
@@ -135,7 +131,7 @@ class EmaMacdKdjTrendStrategy(
 
         val as          = avgSize()
         val direction   = baseDirection
-        val maDirection = ma.emaDirection
+        val maDirection = ma.maDirection
         // val last10K = klines.data.drop(1).take(10)
         // val last10Ma = ma.data.drop(1).take(10)
         // val isFirstCross ma 
