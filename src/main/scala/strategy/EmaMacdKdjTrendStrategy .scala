@@ -78,14 +78,14 @@ class EmaMacdKdjTrendStrategy(
         val offsetValue = (basePrice - ma.current.value) * p.direction
         val offsetRatio = offsetValue / as
 
-        val (newSl, reason) = if (offsetRatio > 10) {
-            (Some(ma.current.value + offsetValue * 0.9 * p.direction), "偏离均线达到10倍波动")
+        val (newSl, reason) = if (offsetRatio > 15) {
+            (Some(ma.current.value + offsetValue * 0.9 * p.direction), "偏离均线达到15倍波动")
+        } else if (offsetRatio > 10) {
+            (Some(ma.current.value + offsetValue * 0.7 * p.direction), "偏离均线达到10倍波动")
         } else if (offsetRatio > 5) {
-            (Some(ma.current.value + offsetValue * 0.8 * p.direction), "偏离均线达到5倍波动")
-        } else if (offsetRatio > 3) {
-            (Some(ma.current.value + offsetValue * 0.7 * p.direction), "偏离均线达到3倍波动")
+            (Some(ma.current.value + offsetValue * 0.5 * p.direction), "偏离均线达到5倍波动")
         } else {
-            (None, "回归均线，无需设置止盈")
+            (None, "回归均线,取消止盈")
         }
         if (newSl != p.stopLoss) {
             logger.info(
@@ -128,7 +128,7 @@ class EmaMacdKdjTrendStrategy(
     // 开仓方向， 无方向返回0
     // 满足macd kdj同向， 且价格区间合理
     // 最近已经突破过均线了。 (第一次碰均线多半反弹)
-    // 怎么过滤趋势中的回调。
+    // 两根k线大幅回调到均线附近， 会开仓, 可能大幅亏损
     def openDirection: Int = {
 
         val k = klines.current
@@ -138,7 +138,7 @@ class EmaMacdKdjTrendStrategy(
         val maDirection = ma.emaDirection
         // val last10K = klines.data.drop(1).take(10)
         // val last10Ma = ma.data.drop(1).take(10)
-        // val isFirstCross ma 
+        // val isFirstCross ma
 
         if (
           baseDirection != 0 &&
