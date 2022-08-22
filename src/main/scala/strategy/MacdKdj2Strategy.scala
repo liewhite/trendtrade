@@ -13,11 +13,9 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// ema macd kdj同向且离均线不远时开仓
-// 收盘有两个指标被破坏且跌破均线平仓
-// 插针利润保护
-// 过去5根K线的收盘价最大值跟当前价的差距不能过大
-class EmaMacdKdjTrendStrategy(
+// macd trend kdj同向， j值不大于70
+// 收盘全部不满足， 或盘中反向
+class MacdKdj2Strategy(
     symbol:          String,
     interval:        String,
     maInterval:      Int,
@@ -113,40 +111,15 @@ class EmaMacdKdjTrendStrategy(
         }
     }
 
-    def directions = {
-        Vector(kdj.dDirection(), macd.macdBarTrend(), ma.maDirection())
+    def directions(offset: Int, strict: Boolean) = {
+        Vector(kdj.kdjRange(offset, strict = true), macd.macdBarTrend(offset))
     }
 
-    def baseDirection: Int = {
-        if (directions.forall(_ == 1)) {
+    def baseDirection(offset: Int, strict: Boolean): Int = {
+        if (directions(offset,strict).forall(_ == 1)) {
             1
-        } else if (directions.forall(_ == -1)) {
+        } else if (directions(offset,strict).forall(_ == -1)) {
             -1
-        } else {
-            0
-        }
-    }
-
-    // 开仓方向， 无方向返回0
-    // 满足macd kdj同向， 且价格区间合理
-    // 最近已经突破过均线了。 (第一次碰均线多半反弹)
-    // 两根k线大幅回调到均线附近， 会开仓, 可能大幅亏损
-    def openDirection: Int = {
-
-        val k = klines.current
-
-        val as          = avgSize()
-        val direction   = baseDirection
-        val maDirection = ma.maDirection
-        // val last10K = klines.data.drop(1).take(10)
-        // val last10Ma = ma.data.drop(1).take(10)
-        // val isFirstCross ma
-
-        if (
-          baseDirection != 0 &&
-          (k.close - ma.current.value) * baseDirection < 0.3 * as // 价格在成本优势区间, 尽量不放过趋势, 要求胜率的话可以设置为负数
-        ) {
-            baseDirection
         } else {
             0
         }
@@ -158,15 +131,12 @@ class EmaMacdKdjTrendStrategy(
         if (positionMgr.hasPosition) {
             val p = positionMgr.currentPosition.get
             if (k.end) {
-                val maValue = ma.current.value
-                // 收盘至少两个指标被破坏, 且跌破均线
+                // 收盘所有指标都被破坏
                 if (
-                  directions.count(_ == p.direction) < 2 &&
-                  (k.close - maValue) * p.direction < 0
+                  directions(0,false).count(_ == p.direction) == 0
                 ) {
                     positionMgr.closeCurrent(k, "跌破均线")
                 }
-
             }
         }
     }
@@ -193,9 +163,12 @@ class EmaMacdKdjTrendStrategy(
         if (!history && klines.data.length >= 20) {
             updateSl()
             checkSl()
-            val direction = openDirection
+            // 要求当前严格满足
+            val direction = baseDirection(0,true)
+            // 上一K不需要严格
+            val lastDirection = baseDirection(1,false)
 
-            if (direction != 0) {
+            if (direction != 0 && lastDirection !=direction) {
                 if (
                   positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
                 ) {

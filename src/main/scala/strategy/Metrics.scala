@@ -151,6 +151,9 @@ class EmaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ema] {
     def emaDirection(offset: Int = 0) = {
         (data(offset).value - data(offset + 1).value).signum
     }
+    def maDirection(offset: Int = 0) = {
+        emaDirection(offset)
+    }
 
     def emaTrend(span: Int = 4, offset: Int = 0): Int = {
         val sigs = data
@@ -364,9 +367,9 @@ class KdjMetric(klines: KlineMetric, arg1: Int = 9, arg2: Int = 3, arg3: Int = 3
     // kdj排列，金叉区间还是死叉区间
     def kdjRange(offset: Int = 0, strict: Boolean = true): Int = {
         val d = (data(offset).j - data(offset).d).signum
-        if (d == 1 && data(offset).j < 60) {
+        if (d == 1 && data(offset).j < 70) {
             1
-        } else if (d == -1 && data(offset).j > 60) {
+        } else if (d == -1 && data(offset).j > 30) {
             -1
         } else {
             0
