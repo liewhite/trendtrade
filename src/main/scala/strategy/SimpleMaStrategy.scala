@@ -122,13 +122,6 @@ class SimpleMaStrategy(
                 ) {
                     positionMgr.closeCurrent(k, "跌破均线")
                 }
-            }else {
-                // 均线调头， 且亏损超过0.5 as
-                if(ma.maDirection() != p.direction) {
-                    if( ( k.close - p.openAt) * p.direction < -0.3 * avgSize()) {
-                        positionMgr.closeCurrent(k, "均线调头")
-                    }
-                }
             }
         }
     }

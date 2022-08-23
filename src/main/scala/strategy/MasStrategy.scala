@@ -14,7 +14,8 @@ import notifier.Notify
 import java.time.ZonedDateTime
 
 // tick突破所有均线
-// kdj 金叉区间， macd trend 同向
+// 突破最低的均线开仓， 收盘跌破最低的均线平仓
+// kdj 金叉区间， makcd trend 同向
 class MasStrategy(
     symbol:          String,
     interval:        String,
