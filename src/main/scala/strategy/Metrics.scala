@@ -96,6 +96,11 @@ class MaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ma] {
         (data(offset).value - data(offset + 1).value).signum
     }
 
+    def simulateMaDirection(nextClosePrice: BigDecimal, offset: Int = 0): BigDecimal = {
+        val data = klines.data.drop(offset).take(interval - 1).map(_.close).prepend(nextClosePrice)
+        data.sum / data.length
+    }
+
     def maTrend(span: Int = 4, offset: Int = 0): Int = {
         val sigs = data
             .slice(offset, offset + span + 1)
@@ -147,6 +152,8 @@ class EmaMetric(klines: KlineMetric, interval: Int) extends KBasedMetric[Ema] {
         }
         Some(v)
     }
+
+    def currentValue = data(0).value
 
     def emaDirection(offset: Int = 0) = {
         (data(offset).value - data(offset + 1).value).signum

@@ -13,8 +13,9 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// macd trend kdj同向， j值不大于70
-// 收盘全部不满足， 或盘中反向
+// macd trend kdj盘中同向， j值不大于70
+// 收盘时macd红变绿， kdj反向， 平仓
+// 即如果macd 水下买， 水下反向即平仓， 如果顺利上岸， 则再次下水才平仓
 class MacdKdj2Strategy(
     symbol:          String,
     interval:        String,
