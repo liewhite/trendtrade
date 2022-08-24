@@ -13,11 +13,13 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// 简单均线策略
-// 顺均线突破开仓
-// 阴线收跌破均线平仓
-// bug： 刚好tick在均线转向处, 则跟随上个均线方向
-class SimpleMaStrategy(
+// ema macd kdj同向且离均线不远时开仓
+// macd kdj 上一K不完全逆势, 当前k顺势, 保证了在同一K线上不会出现开仓平仓的条件
+// 价格没有远离均线
+// 收盘有两个指标被破坏且跌破均线平仓
+// 插针利润保护
+// 过去5根K线的收盘价最大值跟当前价的差距不能过大
+class EmaMacdKdjTrend2Strategy(
     symbol:          String,
     interval:        String,
     maInterval:      Int,
@@ -27,7 +29,11 @@ class SimpleMaStrategy(
     exceptionNotify: Notify
 ) {
     val klines      = KlineMetric()
-    val ma          = MaMetric(klines, maInterval)
+    // ema 会导致趋势中回调到均线就反手，然而如果趋势继续，macd来不及转向， 会错过趋势
+    // 如果回调到均线所有指标都反向， 用ma也会错过， 因为至少要等两K才能使macd恢复
+    val ma          = EmaMetric(klines, maInterval)
+    val macd        = MacdMetric(klines)
+    val kdj         = KdjMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
 
     val logger = Logger("strategy")
@@ -53,6 +59,8 @@ class SimpleMaStrategy(
     def metricTick(k: Kline) = {
         klines.tick(k)
         ma.tick(k)
+        kdj.tick(k)
+        macd.tick(k)
     }
 
     // 根据远离均线的程度， 保护利润
@@ -74,14 +82,14 @@ class SimpleMaStrategy(
         val offsetValue = (basePrice - ma.current.value) * p.direction
         val offsetRatio = offsetValue / as
 
-        val (newSl, reason) = if (offsetRatio > 20) {
-            (Some(ma.current.value + offsetValue * 0.9 * p.direction), "偏离均线达到20倍波动")
+        val (newSl, reason) = if (offsetRatio > 15) {
+            (Some(ma.current.value + offsetValue * 0.9 * p.direction), "偏离均线达到15倍波动")
         } else if (offsetRatio > 10) {
             (Some(ma.current.value + offsetValue * 0.7 * p.direction), "偏离均线达到10倍波动")
         } else if (offsetRatio > 5) {
             (Some(ma.current.value + offsetValue * 0.5 * p.direction), "偏离均线达到5倍波动")
         } else {
-            (None, "回归均线，无需设置止盈")
+            (None, "回归均线,取消止盈")
         }
         if (newSl != p.stopLoss) {
             logger.info(
@@ -107,21 +115,60 @@ class SimpleMaStrategy(
         }
     }
 
+    def directions = {
+        Vector(kdj.dDirection(), macd.macdBarTrend(), ma.maDirection())
+    }
+
+    def baseDirection: Int = {
+        if (directions.forall(_ == 1)) {
+            1
+        } else if (directions.forall(_ == -1)) {
+            -1
+        } else {
+            0
+        }
+    }
+
+    // 开仓方向， 无方向返回0
+    // 满足macd kdj同向， 且价格区间合理
+    // 最近已经突破过均线了。 (第一次碰均线多半反弹)
+    // 两根k线大幅回调到均线附近， 会开仓, 可能大幅亏损
+    def openDirection: Int = {
+
+        val k = klines.current
+
+        val as          = avgSize()
+        val direction   = baseDirection
+        val maDirection = ma.maDirection
+        // val last10K = klines.data.drop(1).take(10)
+        // val last10Ma = ma.data.drop(1).take(10)
+        // val isFirstCross ma
+
+        if (
+          baseDirection != 0 &&
+          (k.close - ma.current.value) * baseDirection < 0.3 * as // 价格在成本优势区间, 尽量不放过趋势, 要求胜率的话可以设置为负数
+        ) {
+            baseDirection
+        } else {
+            0
+        }
+    }
+
     // 平仓判定
     def checkClose() = {
         val k = klines.data(0)
-        // 收盘跌破均线
         if (positionMgr.hasPosition) {
-            val p       = positionMgr.currentPosition.get
-            val maValue = ma.current.value
+            val p = positionMgr.currentPosition.get
             if (k.end) {
-                // 均线劣势侧收反向K线
+                val maValue = ma.current.value
+                // 收盘至少两个指标被破坏, 且跌破均线
                 if (
-                  (k.close - maValue) * p.direction < 0 &&
-                  (k.close - k.open) * p.direction < 0
+                  directions.count(_ == p.direction) < 2 &&
+                  (k.close - maValue) * p.direction < 0
                 ) {
                     positionMgr.closeCurrent(k, "跌破均线")
                 }
+
             }
         }
     }
@@ -142,33 +189,17 @@ class SimpleMaStrategy(
         avgEntitySize
     }
 
-    var lastTick: Kline = null
-
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
-        if (!history && klines.data.length >= 20 && lastTick != null) {
+        if (!history && klines.data.length >= 20) {
             updateSl()
             checkSl()
+            val direction = openDirection
 
-            val lastTickMa  = if (lastTick.end) {
-                ma.data(1).value
-            } else {
-                ma.currentValue
-            }
-            val lastK       = klines.data(1)
-            val lastKMa     = ma.data(1).value
-            val maDirection = ma.maDirection()
-
-            if (
-              maDirection != 0 &&
-              (k.close - ma.currentValue) * maDirection > 0 &&    // 突破均线
-              (lastTick.close - lastTickMa) * maDirection <= 0 && // 上一tick未突破
-              (lastK.close - lastKMa) * maDirection <= 0 &&       // 上一k未突破
-              (k.close - k.open) * maDirection > 0                // 顺势k线
-            ) {
+            if (direction != 0) {
                 if (
-                  positionMgr.hasPosition && positionMgr.currentPosition.get.direction != maDirection
+                  positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
                 ) {
                     positionMgr.closeCurrent(k, "平仓反手")
                 }
@@ -176,7 +207,7 @@ class SimpleMaStrategy(
                     positionMgr.open(
                       k,
                       k.close,
-                      maDirection,
+                      direction,
                       None,
                       None,
                       false
@@ -185,9 +216,6 @@ class SimpleMaStrategy(
             } else {
                 checkClose()
             }
-        }
-        if (!history) {
-            lastTick = k
         }
     }
 

@@ -82,7 +82,7 @@ def start()              = {
     // val validSymbols = Vector(SymbolMeta("XRPUSDT", 0.01, 0.01))
 
     val strategies = validSymbols.map(s => {
-        val bot = SimpleMaStrategy(
+        val bot = EmaMacdKdjTrendStrategy(
           s._1.symbol,
           interval,
           cfg.shortMa,

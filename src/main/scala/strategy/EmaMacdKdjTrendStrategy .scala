@@ -16,7 +16,6 @@ import java.time.ZonedDateTime
 // ema macd kdj同向且离均线不远时开仓
 // 收盘有两个指标被破坏且跌破均线平仓
 // 插针利润保护
-// 过去5根K线的收盘价最大值跟当前价的差距不能过大
 class EmaMacdKdjTrendStrategy(
     symbol:          String,
     interval:        String,
