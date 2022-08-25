@@ -112,8 +112,24 @@ class EmaMacdKdjTrendStrategy(
         }
     }
 
+    def klineDirection(factor: BigDecimal): Int = {
+        val as = avgSize()
+        val k = klines.current
+        if( (k.close - k.open) > factor * as ) {
+            1
+        }else if((k.close - k.open) < -factor * as) {
+            -1
+        }else {
+            0
+        }
+    }
+
     def directions = {
-        Vector(kdj.dDirection(), macd.macdBarTrend(), ma.maDirection())
+        // 不使用macdTrend的原因是 行情启动前一根回撤破坏了macd trend ，当trend恢复， 其他条件又不满足了， 吃了震荡的亏损又没有吃到趋势的利润
+        // 如果使用 阳线 + macd bar direction + kdj.dDirection, 而抛弃 macdBarTrend
+        // 极端情况： 极小价格变动区间内， 以上指标全部反向
+        // 如果加上至少0.1as 的k线大小， 震荡容忍度增加到0.2sa
+        Vector(kdj.dDirection(), macd.macdDirection(), ma.maDirection(), klineDirection(0.2))
     }
 
     def baseDirection: Int = {
@@ -137,13 +153,10 @@ class EmaMacdKdjTrendStrategy(
         val as          = avgSize()
         val direction   = baseDirection
         val maDirection = ma.maDirection
-        // val last10K = klines.data.drop(1).take(10)
-        // val last10Ma = ma.data.drop(1).take(10)
-        // val isFirstCross ma
 
         if (
           baseDirection != 0 &&
-          (k.close - ma.current.value) * baseDirection < 0.3 * as // 价格在成本优势区间, 尽量不放过趋势, 要求胜率的话可以设置为负数
+          (k.close - ma.current.value) * baseDirection < 0.5 * as // 价格在成本优势区间, 尽量不放过趋势, 要求胜率的话可以设置为负数
         ) {
             baseDirection
         } else {
