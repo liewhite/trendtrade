@@ -13,10 +13,10 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// ema macd kdj同向且离均线不远时开仓
-// 收盘有两个指标被破坏且跌破均线平仓
-// 插针利润保护
-class EmaMacdKdjTrendStrategy(
+// 九转改良
+// 出现连续9根以上的上涨结构被破坏时开仓， 使用跟踪止盈
+// 出现反向结构时反手
+class Magic9Strategy(
     symbol:          String,
     interval:        String,
     maInterval:      Int,
@@ -26,11 +26,7 @@ class EmaMacdKdjTrendStrategy(
     exceptionNotify: Notify
 ) {
     val klines      = KlineMetric()
-    // ema 会导致趋势中回调到均线就反手，然而如果趋势继续，macd来不及转向， 会错过趋势
-    // 如果回调到均线所有指标都反向， 用ma也会错过， 因为至少要等两K才能使macd恢复
     val ma          = MaMetric(klines, maInterval)
-    val macd        = MacdMetric(klines)
-    val kdj         = KdjMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
 
     val logger = Logger("strategy")
@@ -56,8 +52,6 @@ class EmaMacdKdjTrendStrategy(
     def metricTick(k: Kline) = {
         klines.tick(k)
         ma.tick(k)
-        kdj.tick(k)
-        macd.tick(k)
     }
 
     // 根据远离均线的程度， 保护利润
@@ -79,14 +73,14 @@ class EmaMacdKdjTrendStrategy(
         val offsetValue = (basePrice - ma.current.value) * p.direction
         val offsetRatio = offsetValue / as
 
-        val (newSl, reason) = if (offsetRatio > 15) {
-            (Some(ma.current.value + offsetValue * 0.9 * p.direction), "偏离均线达到15倍波动")
+        val (newSl, reason) = if (offsetRatio > 20) {
+            (Some(ma.current.value + offsetValue * 0.9 * p.direction), "偏离均线达到20倍波动")
         } else if (offsetRatio > 10) {
             (Some(ma.current.value + offsetValue * 0.7 * p.direction), "偏离均线达到10倍波动")
         } else if (offsetRatio > 5) {
             (Some(ma.current.value + offsetValue * 0.5 * p.direction), "偏离均线达到5倍波动")
         } else {
-            (None, "回归均线,取消止盈")
+            (None, "回归均线，无需设置止盈")
         }
         if (newSl != p.stopLoss) {
             logger.info(
@@ -112,79 +106,18 @@ class EmaMacdKdjTrendStrategy(
         }
     }
 
-    def klineDirection(factor: BigDecimal): Int = {
-        val as = avgSize()
-        val k  = klines.current
-        if ((k.close - k.open) > factor * as) {
-            1
-        } else if ((k.close - k.open) < -factor * as) {
-            -1
-        } else {
-            0
-        }
-    }
-
-    def directions = {
-        // 不使用macdTrend的原因是 行情启动前一根回撤破坏了macd trend ，当trend恢复， 其他条件又不满足了， 吃了震荡的亏损又没有吃到趋势的利润
-        // 如果使用 阳线 + macd bar direction + kdj.dDirection, 而抛弃 macdBarTrend
-        // 极端情况： 极小价格变动区间内， 以上指标全部反向
-        // 如果加上至少0.1as 的k线大小， 震荡容忍度增加到0.2sa
-        Vector(kdj.dDirection(), macd.macdDirection(), klineDirection(0.2))
-    }
-
-    def baseDirection: Int = {
-        if (directions.forall(_ == 1)) {
-            1
-        } else if (directions.forall(_ == -1)) {
-            -1
-        } else {
-            0
-        }
-    }
-
-    // 开仓方向， 无方向返回0
-    // 满足macd kdj同向， 且价格区间合理
-    // 最近已经突破过均线了。 (第一次碰均线多半反弹)
-    // 两根k线大幅回调到均线附近， 会开仓, 可能大幅亏损
-    def openDirection: Int = {
-
-        val k = klines.current
-
-        val as          = avgSize()
-        val direction   = baseDirection
-        val maDirection = ma.maDirection
-
-        if (
-          baseDirection != 0 &&
-          (k.close - ma.current.value) * baseDirection < 0.5 * as // 价格在成本优势区间, 尽量不放过趋势, 要求胜率的话可以设置为负数
-        ) {
-            baseDirection
-        } else {
-            0
-        }
-    }
-
     // 平仓判定
     def checkClose() = {
         val k = klines.data(0)
+        // 收盘跌破均线
         if (positionMgr.hasPosition) {
-            val p = positionMgr.currentPosition.get
+            val p       = positionMgr.currentPosition.get
             val maValue = ma.current.value
             if (k.end) {
-                // 收盘至少两个指标被破坏, 且跌破均线
+                // 均线劣势侧收反向K线
                 if (
-                  directions.count(_ == p.direction) < 2 &&
-                  (k.close - maValue) * p.direction < 0
-                ) {
-                    positionMgr.closeCurrent(k, "跌破均线")
-                }
-
-            } else {
-                // 盘中所有指标都反向, 且跌破均线
-                // 因为最少0.2as 不会来回开仓
-                if (
-                  baseDirection == -p.direction &&
-                  (k.close - maValue) * p.direction < 0
+                  (k.close - maValue) * p.direction < 0 &&
+                  (k.close - k.open) * p.direction < 0
                 ) {
                     positionMgr.closeCurrent(k, "跌破均线")
                 }
@@ -208,17 +141,33 @@ class EmaMacdKdjTrendStrategy(
         avgEntitySize
     }
 
+    var lastTick: Kline = null
+
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
-        if (!history && klines.data.length >= 20) {
+        if (!history && klines.data.length >= 20 && lastTick != null) {
             updateSl()
             checkSl()
-            val direction = openDirection
 
-            if (direction != 0) {
+            val lastTickMa  = if (lastTick.end) {
+                ma.data(1).value
+            } else {
+                ma.currentValue
+            }
+            val lastK       = klines.data(1)
+            val lastKMa     = ma.data(1).value
+            val maDirection = ma.maDirection()
+
+            if (
+              maDirection != 0 &&
+              (k.close - ma.currentValue) * maDirection > 0 &&    // 突破均线
+              (lastTick.close - lastTickMa) * maDirection <= 0 && // 上一tick未突破
+              (lastK.close - lastKMa) * maDirection <= 0 &&       // 上一k未突破
+              (k.close - k.open) * maDirection > 0                // 顺势k线
+            ) {
                 if (
-                  positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
+                  positionMgr.hasPosition && positionMgr.currentPosition.get.direction != maDirection
                 ) {
                     positionMgr.closeCurrent(k, "平仓反手")
                 }
@@ -226,7 +175,7 @@ class EmaMacdKdjTrendStrategy(
                     positionMgr.open(
                       k,
                       k.close,
-                      direction,
+                      maDirection,
                       None,
                       None,
                       false
@@ -235,6 +184,9 @@ class EmaMacdKdjTrendStrategy(
             } else {
                 checkClose()
             }
+        }
+        if (!history) {
+            lastTick = k
         }
     }
 
