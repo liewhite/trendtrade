@@ -28,7 +28,7 @@ class EmaMacdKdjTrendStrategy(
     val klines      = KlineMetric()
     // ema 会导致趋势中回调到均线就反手，然而如果趋势继续，macd来不及转向， 会错过趋势
     // 如果回调到均线所有指标都反向， 用ma也会错过， 因为至少要等两K才能使macd恢复
-    val ma          = MaMetric(klines, maInterval)
+    val ma          = EmaMetric(klines, maInterval)
     val macd        = MacdMetric(klines)
     val kdj         = KdjMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
@@ -112,24 +112,13 @@ class EmaMacdKdjTrendStrategy(
         }
     }
 
-    def klineDirection(factor: BigDecimal): Int = {
-        val as = avgSize()
-        val k  = klines.current
-        if ((k.close - k.open) > factor * as) {
-            1
-        } else if ((k.close - k.open) < -factor * as) {
-            -1
-        } else {
-            0
-        }
-    }
-
     def directions = {
         // 不使用macdTrend的原因是 行情启动前一根回撤破坏了macd trend ，当trend恢复， 其他条件又不满足了， 吃了震荡的亏损又没有吃到趋势的利润
         // 如果使用 阳线 + macd bar direction + kdj.dDirection, 而抛弃 macdBarTrend
         // 极端情况： 极小价格变动区间内， 以上指标全部反向
         // 如果加上至少0.1as 的k线大小， 震荡容忍度增加到0.2sa
-        Vector(kdj.dDirection(), macd.macdDirection(), klineDirection(0.2))
+        // Vector(kdj.dDirection(), macd.macdDirection(), klineDirection(0.2))
+        Vector(kdj.dDirection(), macd.macdDirection(), ma.maDirection())
     }
 
     def baseDirection: Int = {
@@ -152,7 +141,6 @@ class EmaMacdKdjTrendStrategy(
 
         val as          = avgSize()
         val direction   = baseDirection
-        val maDirection = ma.maDirection
 
         if (
           baseDirection != 0 &&
@@ -168,7 +156,7 @@ class EmaMacdKdjTrendStrategy(
     def checkClose() = {
         val k = klines.data(0)
         if (positionMgr.hasPosition) {
-            val p = positionMgr.currentPosition.get
+            val p       = positionMgr.currentPosition.get
             val maValue = ma.current.value
             if (k.end) {
                 // 收盘至少两个指标被破坏, 且跌破均线
@@ -181,7 +169,6 @@ class EmaMacdKdjTrendStrategy(
 
             } else {
                 // 盘中所有指标都反向, 且跌破均线
-                // 因为最少0.2as 不会来回开仓
                 if (
                   baseDirection == -p.direction &&
                   (k.close - maValue) * p.direction < 0
@@ -217,10 +204,16 @@ class EmaMacdKdjTrendStrategy(
             val direction = openDirection
 
             if (direction != 0) {
+
                 if (
-                  positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
+                  positionMgr.hasPosition &&
+                  positionMgr.currentPosition.get.direction != direction
                 ) {
-                    positionMgr.closeCurrent(k, "平仓反手")
+                    // 亏损才考虑反手, 防止临界点来回开仓
+                    val p = positionMgr.currentPosition.get
+                    if ((k.close - p.openAt) * p.direction < -0.3 * avgSize()) {
+                        positionMgr.closeCurrent(k, "平仓反手")
+                    }
                 }
                 if (!positionMgr.hasPosition) {
                     positionMgr.open(

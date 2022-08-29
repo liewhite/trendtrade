@@ -13,13 +13,11 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// ema macd kdj同向且离均线不远时开仓
-// macd kdj 上一K不完全逆势, 当前k顺势, 保证了在同一K线上不会出现开仓平仓的条件
-// 价格没有远离均线
-// 收盘有两个指标被破坏且跌破均线平仓
-// 插针利润保护
-// 过去5根K线的收盘价最大值跟当前价的差距不能过大
-class EmaMacdKdjTrend2Strategy(
+// macd 与 kdj 背离策略
+// macd 刚刚出现信号， 但是kdj已经进入超买超卖区
+// 如果均线逆势， 则多半反弹到头
+// 如果均线顺势， 则放弃入场， 等待下一次更合适的机会
+class MacdKdjBackStrategy(
     symbol:          String,
     interval:        String,
     maInterval:      Int,
