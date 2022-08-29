@@ -142,7 +142,8 @@ class SimpleMaStrategy(
         avgEntitySize
     }
 
-    var lastTick: Kline = null
+    var lastTick: Kline          = null
+    var lastTickMaDirection: Int = 0
 
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
@@ -160,12 +161,23 @@ class SimpleMaStrategy(
             val lastKMa     = ma.data(1).value
             val maDirection = ma.maDirection()
 
+            // 突破均线或者跳过均线开盘
             if (
-              maDirection != 0 &&
-              (k.close - ma.currentValue) * maDirection > 0 &&    // 突破均线
-              (lastTick.close - lastTickMa) * maDirection <= 0 && // 上一tick未突破
-              (lastK.close - lastKMa) * maDirection <= 0 &&       // 上一k未突破
-              (k.close - k.open) * maDirection > 0                // 顺势k线
+              (
+                maDirection != 0 &&
+                    lastTickMaDirection == maDirection &&               // 要求突破前一个tick均线已经顺势， 不然会来回开平
+                    (k.close - ma.currentValue) * maDirection > 0 &&    // 突破均线
+                    (lastTick.close - lastTickMa) * maDirection <= 0 && // 上一tick未突破
+                    //   (lastK.close - lastKMa) * maDirection <= 0 &&       // 上一k未突破
+                    (k.close - k.open) * maDirection > 0                // 顺势k线
+              ) ||
+              (
+                maDirection != 0 &&
+                    (k.close - ma.currentValue) * maDirection > 0 &&    // tick突破均线
+                    (lastTick.close - lastTickMa) * maDirection <= 0 && // 上一tick未突破
+                    lastTick.end                                        // K线开盘
+
+              )
             ) {
                 if (
                   positionMgr.hasPosition && positionMgr.currentPosition.get.direction != maDirection
@@ -188,6 +200,7 @@ class SimpleMaStrategy(
         }
         if (!history) {
             lastTick = k
+            lastTickMaDirection = ma.maDirection()
         }
     }
 

@@ -13,9 +13,7 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// 九转改良
-// 出现连续9根以上的上涨结构被破坏时开仓， 使用跟踪止盈
-// 出现反向结构时反手
+// 超跌或超涨时反向开仓, 浮动止盈（提前下车吃不到利润）
 class Magic9Strategy(
     symbol:          String,
     interval:        String,
