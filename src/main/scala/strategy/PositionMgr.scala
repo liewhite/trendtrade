@@ -21,9 +21,9 @@ class PositionMgr(
     def cleanPosition()                   = {
         currentPosition = None
     }
-    def updateSl(sl: Option[BigDecimal]) = {
+    def updateSl(sl: Option[BigDecimal])  = {
         currentPosition = currentPosition match {
-            case None => None
+            case None    => None
             case Some(p) => Some(p.copy(stopLoss = sl))
         }
     }
@@ -67,6 +67,14 @@ class PositionMgr(
         )
     }
 
+    def sideEmoji(side: Int): String = {
+        if(side == 1) {
+            "📈"
+        }else {
+            "📉"
+        }
+    }
+
     // 发送订单， 等待成交
     // 止盈止损
     def open(
@@ -94,12 +102,18 @@ class PositionMgr(
         val rawQuantity = ((balances._1 / maxHolds) / price * trader.leverage)
         val quantity    = formatQuantity(rawQuantity)
         val side        = if (direction == 1) TradeSide.BUY else TradeSide.SELL
-        val msg         = s"开仓 ${symbol}, ${side} ${quantity}: 依据: ${reason}"
+        val msg         = s"""开仓 ${symbol}
+                             |依据: ${reason}
+                             |方向: ${sideEmoji(direction)}
+                             |金额: ${quantity * price} USD
+                             |止损: ${sl}
+                             |止盈: ${tp}
+                             |""".stripMargin
         logger.info(msg)
         ntf.sendNotify(msg)
         try {
-            val stopLoss = if(autoClose) sl.map(formatPrice(_)) else None
-            val takeProfit = if(autoClose) tp.map(formatPrice(_)) else None
+            val stopLoss   = if (autoClose) sl.map(formatPrice(_)) else None
+            val takeProfit = if (autoClose) tp.map(formatPrice(_)) else None
             trader.sendOrder(
               symbol,
               side,
@@ -107,7 +121,7 @@ class PositionMgr(
               stopLoss,
               takeProfit
             )
-            val msg = s"开仓成功 ${symbol}, ${side} ${quantity} sl: ${sl} tp: ${tp}"
+            val msg        = s"开仓成功 ${symbol}"
 
             logger.info(msg)
             ntf.sendNotify(msg)
@@ -137,7 +151,7 @@ class PositionMgr(
         }
     }
 
-    def closeManually(positionDirection: Int,quantity: BigDecimal) = {
+    def closeManually(positionDirection: Int, quantity: BigDecimal) = {
         val msg = s"强制平仓:${symbol}"
         logger.info(msg)
         ntf.sendNotify(msg)
@@ -171,7 +185,15 @@ class PositionMgr(
         currentPosition match {
             case None       =>
             case Some(item) => {
-                val msg = s"触发平仓:${symbol} 原因: ${reason} ${item} 当前k: ${k}"
+                val msg = s"""触发平仓:${symbol}
+                             |原因: ${reason}
+                             |持仓方向: ${sideEmoji(item.direction)}
+                             |时间: ${k.datetime}
+                             |成本价: ${item.openAt}
+                             |当前价: ${k.close}
+                             |预估盈利: ${(k.close - item.openAt) / item.openAt * 100}%
+                             |""".stripMargin
+
                 logger.info(msg)
                 ntf.sendNotify(msg)
                 try {
@@ -181,7 +203,12 @@ class PositionMgr(
                       item.quantity,
                       close = true
                     )
-                    val msg = s"平仓成功: ${symbol} ${item} 当前k: ${k}"
+                    val msg = s"""平仓成功:${symbol} 原因: ${reason}
+                             |时间: ${k.datetime}
+                             |成本价: ${item.openAt}
+                             |当前价: ${k.close}
+                             |预估盈利: ${(k.close - item.openAt) / item.openAt * 100}%
+                             |""".stripMargin
                     logger.info(msg)
                     ntf.sendNotify(msg)
                 } catch {
@@ -190,7 +217,7 @@ class PositionMgr(
                         logger.error(msg)
                         exceptionNotify.sendNotify(msg)
                     }
-                    case e: Exception => {
+                    case e: Exception        => {
                         val msg = s"平仓失败， 请检查账户是否存在不一致 ${symbol} ${k} ${e}"
                         logger.error(msg)
                         exceptionNotify.sendNotify(msg)

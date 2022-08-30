@@ -164,7 +164,7 @@ class EmaMacdKdjTrendStrategy(
                   directions.count(_ == p.direction) < 2 &&
                   (k.close - maValue) * p.direction < 0
                 ) {
-                    positionMgr.closeCurrent(k, "跌破均线")
+                    positionMgr.closeCurrent(k, "收盘跌破均线")
                 }
 
             } else {
@@ -173,7 +173,7 @@ class EmaMacdKdjTrendStrategy(
                   baseDirection == -p.direction &&
                   (k.close - maValue) * p.direction < 0
                 ) {
-                    positionMgr.closeCurrent(k, "跌破均线")
+                    positionMgr.closeCurrent(k, "盘中跌破均线")
                 }
             }
         }
@@ -212,7 +212,7 @@ class EmaMacdKdjTrendStrategy(
                     // 亏损才考虑反手, 防止临界点来回开仓
                     val p = positionMgr.currentPosition.get
                     if ((k.close - p.openAt) * p.direction < -0.3 * avgSize()) {
-                        positionMgr.closeCurrent(k, "平仓反手")
+                        positionMgr.closeCurrent(k, "反手")
                     }
                 }
                 if (!positionMgr.hasPosition) {
