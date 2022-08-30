@@ -105,6 +105,7 @@ class PositionMgr(
         val msg         = s"""开仓 ${symbol}
                              |依据: ${reason}
                              |方向: ${sideEmoji(direction)}
+                             |现价: ${k.close}
                              |金额: ${quantity * price} USD
                              |止损: ${sl}
                              |止盈: ${tp}
@@ -191,7 +192,7 @@ class PositionMgr(
                              |时间: ${k.datetime}
                              |成本价: ${item.openAt}
                              |当前价: ${k.close}
-                             |预估盈利: ${(k.close - item.openAt) / item.openAt * 100}%
+                             |预估盈利: ${(k.close - item.openAt) / item.openAt * item.direction * 100}%
                              |""".stripMargin
 
                 logger.info(msg)
@@ -203,12 +204,7 @@ class PositionMgr(
                       item.quantity,
                       close = true
                     )
-                    val msg = s"""平仓成功:${symbol} 原因: ${reason}
-                             |时间: ${k.datetime}
-                             |成本价: ${item.openAt}
-                             |当前价: ${k.close}
-                             |预估盈利: ${(k.close - item.openAt) / item.openAt * 100}%
-                             |""".stripMargin
+                    val msg = s"平仓成功:${symbol}"
                     logger.info(msg)
                     ntf.sendNotify(msg)
                 } catch {
