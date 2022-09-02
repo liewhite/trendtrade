@@ -458,8 +458,6 @@ trait BinanceApi(
         }
     }
 
-
-
     def doGetTotalBalance(): (BigDecimal, BigDecimal) = {
         val req     = uri"${binanceHttpBaseUrl}/fapi/v2/balance"
         val signed  = signReq(req)
@@ -480,21 +478,21 @@ trait BinanceApi(
 
     }
 
-    var balance: (BigDecimal, BigDecimal) = (0,0)
+    var balance: (BigDecimal, BigDecimal)    = (0, 0)
     var balanceLastUpdateTime: ZonedDateTime = ZonedDateTime.now().minusHours(1)
-    val balanceLock = Object()
+    val balanceLock                          = Object()
 
     // (total, available)
     // 缓存5s，开仓失败就失败吧
     def getTotalBalance(): (BigDecimal, BigDecimal) = {
-        balanceLock.synchronized{
+        balanceLock.synchronized {
             val now = ZonedDateTime.now()
-            if(Duration.between(balanceLastUpdateTime, now).getSeconds() > 5 ) {
+            if (Duration.between(balanceLastUpdateTime, now).getSeconds() > 5) {
                 val (total, current) = doGetTotalBalance()
                 balance = (total, current)
                 balanceLastUpdateTime = now
                 (total, current)
-            }else {
+            } else {
                 balance
             }
         }
@@ -691,11 +689,11 @@ trait BinanceApi(
         withTs.addParam("signature", sign)
     }
 
-    def supply(amount: BigDecimal) = {
+    def transfer(amount: BigDecimal, direction: String) = {
         val url       = uri"${binanceHttpBaseUrl2}/sapi/v1/futures/transfer"
             .addParam("asset", quoteSymbol)
             .addParam("amount", amount.toString())
-            .addParam("type", "1")
+            .addParam("type", direction)
         val signedReq = signReq(url)
         val response  = quickRequest
             .post(signedReq)
@@ -706,18 +704,19 @@ trait BinanceApi(
             .send(backend)
         val res       = response.body
         logger.info(s"补充保证金: ${response.code}, ${res}")
-        importNtf.sendNotify(s"补充保证金: ${amount}, 结果: ${response.code}, ${res}")
+        val action = if(direction == "1"){"入金"} else {"出金"}
+        importNtf.sendNotify(s"${action}: ${amount}, 结果: ${response.code}, ${res}")
     }
 
     // 补充合约账户余额
     def autoSupply() = {
         val (total, _) = getTotalBalance()
-        ntf.sendNotify(s"当前保证金: ${total},所需最低保证金: ${totalSupply}")
+        ntf.sendNotify(s"当前保证金: ${total},所需保证金: ${totalSupply}")
 
-        // 如果保证金低于最低要求,补足
         if (total < totalSupply * 0.99) {
-            // 取整
-            supply((totalSupply - total).longValue + 1)
+            transfer((totalSupply - total).longValue + 1, "1")
+        } else if (total > totalSupply * 1.05) {
+            transfer((total - totalSupply).longValue - 1, "2")
         }
     }
 
