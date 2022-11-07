@@ -202,6 +202,7 @@ trait BinanceApi(
         }
         symbolMetas.map(_._2).toVector
     }
+
     def symbolMeta(symbol: String): SymbolMeta = {
         this.synchronized {
             if (symbolMetas.isEmpty) {
