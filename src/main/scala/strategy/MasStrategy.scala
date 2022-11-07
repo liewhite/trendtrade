@@ -12,10 +12,11 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
+import cats.instances.long
 
-// tick突破所有均线
-// 突破最低的均线开仓， 收盘跌破最低的均线平仓
-// kdj 金叉区间， makcd trend 同向
+// 如何处理均线纠缠频繁开仓
+// 只朝k线方向开仓， 比如均线纠缠了， 但是并不会在一根k线内来回开仓
+// 浮动止盈止损, 或者反向信号出现，直接反手
 class MasStrategy(
     symbol:          String,
     interval:        String,
@@ -31,9 +32,8 @@ class MasStrategy(
     val shortMa     = MaMetric(klines, shortMaInterval)
     val midMa       = MaMetric(klines, midMaInterval)
     val longMa      = MaMetric(klines, longMaInterval)
-    val macd        = MacdMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
-    val slFactor    = 0.5
+    val slFactor = 0.5
 
     val logger = Logger("strategy")
 
@@ -60,7 +60,6 @@ class MasStrategy(
         shortMa.tick(k)
         midMa.tick(k)
         longMa.tick(k)
-        macd.tick(k)
     }
 
     // 更新止损位
@@ -90,7 +89,6 @@ class MasStrategy(
             }
         }
 
-        //  todo 远离均线才止盈
         //  利润 / 平均size, >0盈利， <0 亏损
         val profit           = (k.close - p.openAt) * p.direction
         val profitForAvgSize = profit / as
@@ -109,9 +107,9 @@ class MasStrategy(
             (maxSl(oldSl, p.openAt + profit * 0.4 * p.direction, p.direction), "达到3倍波动")
         } else if (profitForAvgSize > 1.5) {
             (maxSl(oldSl, p.openAt + profit * 0.3 * p.direction, p.direction), "达到1.5倍波动")
-        } else if (profitForAvgSize > 0.5) {
+        } else if (profitForAvgSize > 1) {
             // 浮盈大于1倍size， 保本出
-            (maxSl(oldSl, p.openAt + profit * 0.1 * p.direction, p.direction), "达到1.5倍波动")
+            (maxSl(oldSl, p.openAt + profit * 0.2 * p.direction, p.direction), "达到1倍波动")
         } else if (profitForAvgSize <= 0.5) {
             // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小
@@ -160,9 +158,31 @@ class MasStrategy(
         val avgEntitySize = entities.sum / entities.length
         avgEntitySize
     }
-
-    var openTime: ZonedDateTime = null
     var lastTick: Kline         = null
+
+    def aggDirections(ds: Vector[Int]): Int = {
+        if (ds.forall(_ == 1)) {
+            return 1
+        } else if (ds.forall(_ == -1)) {
+            return -1
+        } else {
+            return 0
+        }
+    }
+
+    def openDirection(currentDirection: Int, lastKDirection: Int, lastTickDirection: Int, kDirection: Int): Int = {
+        // if(currentDirection == 1 && )
+        if(currentDirection == 0 ) {
+            0
+        }else {
+            //阳线突破均线, 且上一tick， 上一k都未突破均线
+            if(currentDirection == kDirection && currentDirection != lastKDirection && currentDirection != lastTickDirection) {
+                currentDirection
+            }else {
+                0
+            }
+        }
+    }
 
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
@@ -170,51 +190,53 @@ class MasStrategy(
         if (!history && klines.data.length >= 60 && lastTick != null) {
             updateSl()
 
-            val macdDirection = macd.macdBarTrend()
+            // 现价方向
+            val shortDirection   = (k.close - shortMa.currentValue).signum
+            val midDirection     = (k.close - midMa.currentValue).signum
+            val longDirection    = (k.close - longMa.currentValue).signum
+            val currentDirection = aggDirections(
+              Vector(shortDirection, midDirection, longDirection)
+            )
 
-            val shortDirection    = (k.close - shortMa.currentValue).signum
-            val midDirection      = (k.close - midMa.currentValue).signum
-            val longDirection     = (k.close - longMa.currentValue).signum
-            val currentDirections = Vector(shortDirection, midDirection, longDirection)
+            // 上一K方向, 跟上一均线做比较
+            val lastKShortDirection = (klines.data(1).close - shortMa.data(1).value).signum
+            val lastKMidDirection   = (klines.data(1).close - midMa.data(1).value).signum
+            val lastKLongDirection  = (klines.data(1).close - longMa.data(1).value).signum
+            val lastKDirection      = aggDirections(
+              Vector(lastKShortDirection, lastKMidDirection, lastKLongDirection)
+            )
 
-            // 可能上一K线突破了， 但是macd不符合要求
-            // 当前K线再次回踩均线， macd符合要求可以开仓
-
-            val (lastTickShortMa, lastTickMidMa, lastTickLongMa) = if (lastTick.end) {
-                (shortMa.data(1).value, midMa.data(1).value, longMa.data(1).value)
+            // 上一tick方向, 跟当前均线做比较
+            // 如果上一tick是收盘， 则上一tick方向等于上一K方向
+            val lastTickDirection = if (lastTick.end) {
+                lastKDirection
             } else {
-                (shortMa.currentValue, midMa.currentValue, longMa.currentValue)
+                val lastTickshortDirection = (lastTick.close - shortMa.currentValue).signum
+                val lastTickmidDirection   = (lastTick.close - midMa.currentValue).signum
+                val lastTicklongDirection  = (lastTick.close - longMa.currentValue).signum
+                aggDirections(
+                  Vector(lastTickshortDirection, lastTickmidDirection, lastTicklongDirection)
+                )
             }
+            // K线方向
+            val kDirection = (k.close - k.open).signum
 
-            val lastTickshortDirection = (lastTick.close - lastTickShortMa).signum
-            val lastTickmidDirection   = (lastTick.close - lastTickMidMa).signum
-            val lastTicklongDirection  = (lastTick.close - lastTickLongMa).signum
-            val lastTickDirections     =
-                Vector(lastTickshortDirection, lastTickmidDirection, lastTicklongDirection)
+            // k线方向与当前突破方向一致
+            // 突破的两种形式：
+            // 1. k线实体突破
+            // 2. 跳空突破
+            // 有共同特征， 就是 上1k收盘在均线另一侧
 
-            // 金叉区间， 连续正增长， tick突破所有均线
-            val condition =
-                macdDirection != 0 && macd.barDirection() == macdDirection && currentDirections
-                    .forall(
-                      _ == macdDirection
-                    ) && !lastTickDirections.forall(_ == macdDirection)
+            val direction = openDirection(currentDirection,lastKDirection, lastTickDirection, kDirection)
 
             // 不满足开仓条件了， 跟踪止盈
-            if (positionMgr.hasPosition && !condition) {
+            if (positionMgr.hasPosition && direction == 0) {
                 checkSl()
             }
 
-            if (
-              openTime != null && Duration
-                  .between(openTime, ZonedDateTime.now())
-                  .getSeconds() < 60
-            ) {
-                return
-            }
-
-            if (condition) {
+            if (direction != 0 ) {
                 if (
-                  positionMgr.hasPosition && positionMgr.currentPosition.get.direction != macdDirection
+                  positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
                 ) {
                     positionMgr.closeCurrent(k, "反手")
                 }
@@ -223,19 +245,15 @@ class MasStrategy(
                     positionMgr.open(
                       k,
                       k.close,
-                      macdDirection,
-                      Some(k.close - (slFactor * as) * macdDirection),
+                      direction,
+                      Some(k.close - (slFactor * as) * direction),
                       None,
                       false,
-                      s"macd: ${macd.data.slice(0, 4).reverse.map(_.bar).mkString(",")}"
+                      s"突破均线"
                     )
 
                 }
-                // 休息一分钟
-                openTime = ZonedDateTime.now()
-
             }
-
         }
 
         if (!history) {

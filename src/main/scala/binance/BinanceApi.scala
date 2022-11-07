@@ -717,7 +717,9 @@ trait BinanceApi(
         if (total < totalSupply * 0.99) {
             transfer((totalSupply - total).longValue + 1, "1")
         } else if (total > totalSupply * 1.05) {
-            transfer((total - totalSupply).longValue - 1, "2")
+            if((total - totalSupply).longValue - 1 > 0) {
+                transfer((total - totalSupply).longValue - 1, "2")
+            }
         }
     }
 
