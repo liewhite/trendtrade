@@ -171,8 +171,11 @@ class MasStrategy(
     }
 
     def openDirection(currentDirection: Int, lastKDirection: Int, lastTickDirection: Int, kDirection: Int): Int = {
-        // if(currentDirection == 1 && )
-        if(currentDirection == 0 ) {
+        // 均线间隔太小不开仓
+        val mas = Vector(shortMa.currentValue, midMa.currentValue, longMa.currentValue)
+        val maDelta = mas.max - mas.min
+
+        if(currentDirection == 0 || maDelta < avgSize() * 0.5 ) {
             0
         }else {
             //阳线突破均线, 且上一tick， 上一k都未突破均线
