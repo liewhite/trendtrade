@@ -33,7 +33,7 @@ class MasStrategy(
     val midMa       = MaMetric(klines, midMaInterval)
     val longMa      = MaMetric(klines, longMaInterval)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
-    val slFactor = 0.5
+    val slFactor    = 0.5
 
     val logger = Logger("strategy")
 
@@ -127,14 +127,29 @@ class MasStrategy(
         positionMgr.updateSl(Some(newSl))
     }
 
+    def currentMas         = Vector(shortMa.currentValue, midMa.currentValue, longMa.currentValue)
     def checkSl(): Boolean = {
         if (positionMgr.hasPosition) {
-            val k            = klines.data(0)
-            val p            = positionMgr.currentPosition.get
-            val currentPrice = k.close
-            if ((currentPrice - p.stopLoss.get) * p.direction < 0) {
-                positionMgr.closeCurrent(k, "触发移动止盈平仓")
-                true
+            val k                 = klines.data(0)
+            val p                 = positionMgr.currentPosition.get
+            val positionDirection = p.direction
+            val currentPrice      = k.close
+            // 浮盈浮亏策略不同， 浮亏盘中平仓
+            val hasProfit = ((currentPrice - p.openAt) * p.direction) > 0
+            // 收盘或者浮亏状态 回撤超过了止损线
+            if ((currentPrice - p.stopLoss.get) * p.direction < 0 && (k.end || !hasProfit)) {
+                // 收盘回撤到均线内才平仓,防止被甩下车无法再次上次
+                if (positionDirection == 1 && currentPrice < currentMas.max) {
+                    // 多单，则收盘价小于最大均线
+                    positionMgr.closeCurrent(k, "触发移动止盈平仓")
+                    true
+                } else if (positionDirection == -1 && currentPrice > currentMas.min) {
+                    // 空单，则收盘价大于最小均线
+                    positionMgr.closeCurrent(k, "触发移动止盈平仓")
+                    true
+                } else {
+                    false
+                }
             } else {
                 false
             }
@@ -158,7 +173,7 @@ class MasStrategy(
         val avgEntitySize = entities.sum / entities.length
         avgEntitySize
     }
-    var lastTick: Kline         = null
+    var lastTick: Kline       = null
 
     def aggDirections(ds: Vector[Int]): Int = {
         if (ds.forall(_ == 1)) {
@@ -170,18 +185,25 @@ class MasStrategy(
         }
     }
 
-    def openDirection(currentDirection: Int, lastKDirection: Int, lastTickDirection: Int, kDirection: Int): Int = {
+    def openDirection(
+        currentDirection: Int,
+        lastKDirection: Int,
+        lastTickDirection: Int,
+        kDirection: Int
+    ): Int = {
         // 均线间隔太小不开仓
-        val mas = Vector(shortMa.currentValue, midMa.currentValue, longMa.currentValue)
+        val mas     = Vector(shortMa.currentValue, midMa.currentValue, longMa.currentValue)
         val maDelta = mas.max - mas.min
 
-        if(currentDirection == 0 || maDelta < avgSize() * 0.5 ) {
+        if (currentDirection == 0 || maDelta < avgSize() * 0.5) {
             0
-        }else {
-            //阳线突破均线, 且上一tick， 上一k都未突破均线
-            if(currentDirection == kDirection && currentDirection != lastKDirection && currentDirection != lastTickDirection) {
+        } else {
+            // 阳线突破均线, 且上一tick， 上一k都未突破均线
+            if (
+              currentDirection == kDirection && currentDirection != lastKDirection && currentDirection != lastTickDirection
+            ) {
                 currentDirection
-            }else {
+            } else {
                 0
             }
         }
@@ -222,7 +244,7 @@ class MasStrategy(
                 )
             }
             // K线方向
-            val kDirection = (k.close - k.open).signum
+            val kDirection        = (k.close - k.open).signum
 
             // k线方向与当前突破方向一致
             // 突破的两种形式：
@@ -230,14 +252,15 @@ class MasStrategy(
             // 2. 跳空突破
             // 有共同特征， 就是 上1k收盘在均线另一侧
 
-            val direction = openDirection(currentDirection,lastKDirection, lastTickDirection, kDirection)
+            val direction =
+                openDirection(currentDirection, lastKDirection, lastTickDirection, kDirection)
 
             // 不满足开仓条件了， 跟踪止盈
             if (positionMgr.hasPosition && direction == 0) {
                 checkSl()
             }
 
-            if (direction != 0 ) {
+            if (direction != 0) {
                 if (
                   positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
                 ) {
