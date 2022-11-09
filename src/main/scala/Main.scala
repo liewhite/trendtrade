@@ -66,7 +66,7 @@ def start()              = {
     })
 
     val validSymbols = symbolsAndOpened.sortBy(_._2).reverse.take(cfg.maxHolds).map(_._1.symbol).toSet
-    val currentHoldingSymbol = binanceApi.getPositions().map(_.symbol).toSet
+    val currentHoldingSymbol = binanceApi.getPositions().filter(_.positionAmt != 0).map(_.symbol).toSet
     // 当前持有但是跌出持仓排名的
     logger.info("load current holding but not in target symbols:")
     (currentHoldingSymbol -- validSymbols).foreach(println)
