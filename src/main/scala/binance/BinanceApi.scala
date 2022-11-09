@@ -164,7 +164,7 @@ trait BinanceApi(
     var symbolMetas: Map[String, SymbolMeta] = Map.empty
     val heartBeat                            = CMap.empty[String, ZonedDateTime]
 
-    def allSymbol(): Vector[SymbolMeta]        = {
+    def allSymbol(): Vector[SymbolMeta] = {
         this.synchronized {
             if (symbolMetas.isEmpty) {
                 val response = quickRequest
@@ -344,9 +344,8 @@ trait BinanceApi(
             .toVector
     }
 
-    def getPositions(symbol: String): Vector[PositionFromBinance] = {
+    def getPositions(): Vector[PositionFromBinance] = {
         val infoUrl   = uri"${binanceHttpBaseUrl}/fapi/v2/account"
-        // 更改逐仓， 杠杆倍数
         val signedReq = signReq(infoUrl)
         val response  = quickRequest
             .get(signedReq)
@@ -355,9 +354,6 @@ trait BinanceApi(
               apiKey
             )
             .send(backend)
-
-        // logger.info(response.body)
-
         response.body
             .fromJsonMust[AccountInfoResponse]
             .positions
@@ -369,7 +365,10 @@ trait BinanceApi(
                 )
             })
             .toVector
-            .filter(item => item.positionAmt != 0 && item.symbol == symbol)
+    }
+
+    def getPosition(symbol: String): Vector[PositionFromBinance] = {
+        getPositions().filter(item => item.positionAmt != 0 && item.symbol == symbol)
     }
 
     def getTrades(symbol: String): Vector[TradeResponse] = {
@@ -705,7 +704,8 @@ trait BinanceApi(
             .send(backend)
         val res       = response.body
         logger.info(s"补充保证金: ${response.code}, ${res}")
-        val action = if(direction == "1"){"入金"} else {"出金"}
+        val action    = if (direction == "1") { "入金" }
+        else { "出金" }
         importNtf.sendNotify(s"${action}: ${amount}, 结果: ${response.code}, ${res}")
     }
 
@@ -717,7 +717,7 @@ trait BinanceApi(
         if (total < totalSupply * 0.99) {
             transfer((totalSupply - total).longValue + 1, "1")
         } else if (total > totalSupply * 1.05) {
-            if((total - totalSupply).longValue - 1 > 0) {
+            if ((total - totalSupply).longValue - 1 > 0) {
                 transfer((total - totalSupply).longValue - 1, "2")
             }
         }

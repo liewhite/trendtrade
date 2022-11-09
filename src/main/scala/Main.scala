@@ -78,12 +78,14 @@ def start()              = {
         (item, value)
     })
     val validSymbols = symbolsAndOpened.sortBy(_._2).reverse.take(cfg.maxHolds)
+    val currentHoldingSymbol = binanceApi.getPositions().map(_.symbol)
     validSymbols.foreach(println)
-    // val validSymbols = Vector(SymbolMeta("XRPUSDT", 0.01, 0.01))
+    // 市值前N加上当前持有symbol
+    val watchSymbols = validSymbols.map(_._1.symbol).toSet ++ currentHoldingSymbol.toSet
 
-    val strategies = validSymbols.map(s => {
+    val strategies = watchSymbols.map(s => {
         val bot = MasStrategy(
-          s._1.symbol,
+          s,
           interval,
           cfg.shortMa,
           cfg.midMa,

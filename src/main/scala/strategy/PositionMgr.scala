@@ -44,13 +44,14 @@ class PositionMgr(
         currentPosition = None
         logger.info(s"load positions of ${symbol}")
         // 获取持仓,过滤出symbol
-        val positions = trader.getPositions(symbol)
+        val positions = trader.getPosition(symbol)
         if (positions.length == 0) {
             return
         }
         if (positions.length > 1) {
-            throw Exception("positions > 1, strategy only support one position")
+            throw Exception(s"${symbol} positions > 1, strategy only support exactly one position")
         }
+
         val p         = positions(0)
         val direction = p.positionAmt.signum
         currentPosition = Some(
@@ -68,9 +69,9 @@ class PositionMgr(
     }
 
     def sideEmoji(side: Int): String = {
-        if(side == 1) {
+        if (side == 1) {
             "📈"
-        }else {
+        } else {
             "📉"
         }
     }
@@ -89,11 +90,11 @@ class PositionMgr(
         if (currentPosition.nonEmpty) {
             return
         }
-        // 查询账户总额， 余额, 如果余额小于总额的10%()， 放弃开仓
+        // 查询账户总额， 余额, 如果余额小于单个仓位的需求， 放弃开仓
         val balances    = trader.getTotalBalance()
         if (balances._2 * maxHolds < balances._1) {
             // NOTE: 做好合约账户被爆90%的准备,千万不能入金太多, 最多放可投资金的1/4, 这样被爆了还有机会翻
-            val msg = s"余额不足10%, 停止开仓 ${symbol} ${balances._2}/${balances._1}"
+            val msg = s"余额不足, 停止开仓 ${symbol} ${balances._2}/${balances._1}"
             logger.warn(msg)
             // ntf.sendNotify(msg)
             return
