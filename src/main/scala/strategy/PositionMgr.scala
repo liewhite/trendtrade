@@ -6,6 +6,8 @@ import com.typesafe.scalalogging.Logger
 import binance.TradeSide
 import java.util.concurrent.TimeoutException
 import java.time.ZonedDateTime
+import java.math.MathContext
+import java.math.RoundingMode
 
 class PositionMgr(
     symbol:          String,
@@ -42,7 +44,6 @@ class PositionMgr(
 
     def loadPosition(): Unit = {
         currentPosition = None
-        logger.info(s"load positions of ${symbol}")
         // 获取持仓,过滤出symbol
         val positions = trader.getPosition(symbol)
         if (positions.length == 0) {
@@ -51,6 +52,7 @@ class PositionMgr(
         if (positions.length > 1) {
             throw Exception(s"${symbol} positions > 1, strategy only support exactly one position")
         }
+
 
         val p         = positions(0)
         val direction = p.positionAmt.signum
@@ -66,6 +68,7 @@ class PositionMgr(
             None
           )
         )
+        logger.info(s"load positions of ${symbol}: $currentPosition")
     }
 
     def sideEmoji(side: Int): String = {
@@ -193,7 +196,7 @@ class PositionMgr(
                              |时间: ${k.datetime}
                              |成本价: ${item.openAt}
                              |当前价: ${k.close}
-                             |预估盈利: ${(k.close - item.openAt) / item.openAt * item.direction * 100}%
+                             |预估盈利: ${ ((k.close - item.openAt) / item.openAt * item.direction * 100).round(new MathContext(4, RoundingMode.HALF_UP))}%
                              |""".stripMargin
 
                 logger.info(msg)

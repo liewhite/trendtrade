@@ -24,7 +24,6 @@ case class AppConfig(
     heartBeatWebhook: String,
     exceptionWebhook: String,
     leastSupply:      BigDecimal,
-    leastOpenedValue: BigDecimal
 )
 
 val logger = Logger("main")
@@ -55,33 +54,27 @@ def start()              = {
     ) {}
     binanceApi.start()
 
-    logger.info("get all busd symbols")
     val interval   = cfg.interval
+
     val allSymbols = binanceApi
         .allSymbol()
         .filter(_.symbol.endsWith(cfg.quoteSymbol))
-    // .filter(item => cfg.symbolBl.contains(item.symbol))
-    logger.info("create strategies for symbols")
-    // binanceApi.sendOrder("BTCBUSD", TradeSide.SELL, 0.001, Some(21000), Some(18000))
-    // val positionMgr = PositionMgr("BTCBUSD", binanceApi, 10, notifyBot, exceptionBot)
-    // positionMgr.closeManually(-1, 0.001)
-    // println(binanceApi.getOpenInterest("ONEUSDT"))
-    // println(binanceApi.supply(1))
 
-    // 持仓小于1000w的忽略
-    // val validSymbols = allSymbols.filter(item => {
-    //     val value = binanceApi.getOpenInterest(item.symbol)
-    //     value > cfg.leastOpenedValue
-    // })
     val symbolsAndOpened = allSymbols.map(item => {
         val value = binanceApi.getOpenInterest(item.symbol)
         (item, value)
     })
-    val validSymbols = symbolsAndOpened.sortBy(_._2).reverse.take(cfg.maxHolds)
-    val currentHoldingSymbol = binanceApi.getPositions().map(_.symbol)
-    validSymbols.foreach(println)
+
+    val validSymbols = symbolsAndOpened.sortBy(_._2).reverse.take(cfg.maxHolds).map(_._1.symbol).toSet
+    val currentHoldingSymbol = binanceApi.getPositions().map(_.symbol).toSet
+    // 当前持有但是跌出持仓排名的
+    logger.info("load current holding but not in target symbols:")
+    (currentHoldingSymbol -- validSymbols).foreach(println)
+    logger.info("all symbols: ")
+    validSymbols.zipWithIndex.foreach(println)
+
     // 市值前N加上当前持有symbol
-    val watchSymbols = validSymbols.map(_._1.symbol).toSet ++ currentHoldingSymbol.toSet
+    val watchSymbols = validSymbols ++ currentHoldingSymbol
 
     val strategies = watchSymbols.map(s => {
         val bot = MasStrategy(
@@ -98,7 +91,6 @@ def start()              = {
         bot.start()
         bot
     })
-    // strategies(0).czscK.data.foreach(println)
 }
 
 @main def main: Unit = {
