@@ -14,9 +14,11 @@ import notifier.Notify
 import java.time.ZonedDateTime
 import cats.instances.long
 
-// 如何处理均线纠缠频繁开仓
 // 只朝k线方向开仓， 比如均线纠缠了， 但是并不会在一根k线内来回开仓
 // 浮动止盈止损, 或者反向信号出现，直接反手
+// todo： 开仓k线结束后， 后面的K线回撤到止损线后， 平仓， 价格又再回去了。
+// 因为开仓只会在k线方向开， 所以这种情况会被甩下车
+// 解决方法： k线方向与突破方向不一致， 但是突破价格距离k线端点超过0.5as， 也作为开仓信号
 class MasStrategy(
     symbol:          String,
     interval:        String,
@@ -135,7 +137,7 @@ class MasStrategy(
             val positionDirection = p.direction
             val currentPrice      = k.close
             // 浮盈浮亏策略不同， 浮亏盘中平仓
-            val hasProfit = ((currentPrice - p.openAt) * p.direction) > 0
+            val hasProfit         = ((currentPrice - p.openAt) * p.direction) > 0
             // 收盘或者浮亏状态 回撤超过了止损线
             if ((currentPrice - p.stopLoss.get) * p.direction < 0 && (k.end || !hasProfit)) {
                 // 收盘回撤到均线内才平仓,防止被甩下车无法再次上次
@@ -195,16 +197,29 @@ class MasStrategy(
         val mas     = Vector(shortMa.currentValue, midMa.currentValue, longMa.currentValue)
         val maDelta = mas.max - mas.min
 
-        if (currentDirection == 0 || maDelta < avgSize() * 0.5) {
+        val as = avgSize()
+        if (currentDirection == 0 || maDelta < as * slFactor) {
             0
         } else {
-            // 阳线突破均线, 且上一tick， 上一k都未突破均线
             if (
               currentDirection == kDirection && currentDirection != lastKDirection && currentDirection != lastTickDirection
             ) {
+                // 阳线突破均线, 且上一tick， 上一k都未突破均线
                 currentDirection
             } else {
-                0
+                val benchmark =
+                    if (currentDirection == 1) then klines.current.low else klines.current.high
+
+                val distanceFromBenchMark = (klines.current.close - benchmark).abs
+                // 当前突破方向与K线方向不一致 && 距离K线端点超过0.5 && tick突破均线
+                // 防止同一k线内回撤再突破甩下车
+                if (
+                  currentDirection != kDirection && distanceFromBenchMark > slFactor * as && currentDirection != lastTickDirection
+                ) {
+                    currentDirection
+                } else {
+                    0
+                }
             }
         }
     }
