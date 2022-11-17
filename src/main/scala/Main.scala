@@ -24,6 +24,7 @@ case class AppConfig(
     heartBeatWebhook: String,
     exceptionWebhook: String,
     leastSupply:      BigDecimal,
+    blackList:        Vector[String]
 )
 
 val logger = Logger("main")
@@ -54,19 +55,24 @@ def start()              = {
     ) {}
     binanceApi.start()
 
-    val interval   = cfg.interval
+    val interval = cfg.interval
+
+    logger.info(s"blackList: ${cfg.blackList}")
 
     val allSymbols = binanceApi
         .allSymbol()
         .filter(_.symbol.endsWith(cfg.quoteSymbol))
+        .filter(item => !cfg.blackList.contains(item.symbol))
 
     val symbolsAndOpened = allSymbols.map(item => {
         val value = binanceApi.getOpenInterest(item.symbol)
         (item, value)
     })
 
-    val validSymbols = symbolsAndOpened.sortBy(_._2).reverse.take(cfg.maxHolds).map(_._1.symbol).toSet
-    val currentHoldingSymbol = binanceApi.getPositions().filter(_.positionAmt != 0).map(_.symbol).toSet
+    val validSymbols         =
+        symbolsAndOpened.sortBy(_._2).reverse.take(cfg.maxHolds).map(_._1.symbol).toSet
+    val currentHoldingSymbol =
+        binanceApi.getPositions().filter(_.positionAmt != 0).map(_.symbol).toSet
     // 当前持有但是跌出持仓排名的
     logger.info("load current holding but not in target symbols:")
     (currentHoldingSymbol -- validSymbols).foreach(println)

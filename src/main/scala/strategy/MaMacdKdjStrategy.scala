@@ -95,12 +95,16 @@ class MaMacdKdjStrategy(
         val pDirection    = positionMgr.currentPosition.get.direction
         val maValue       = ma.currentValue
         val macdDirection = macd.macdBarTrend(2)
+        val ds = metrics
         if (!k.end) {
+            // 浮亏超过阈值
             if ((k.close - position.openAt) * position.direction < -as * slFactor) {
-                positionMgr.closeCurrent(k, "盘中止损")
+                // 指标被破坏
+                if(!metrics.forall(_ == position.direction)) {
+                    positionMgr.closeCurrent(k, "盘中止损")
+                }
             }
         } else {
-            val ds = metrics
             // 浮盈状态， 收盘时若回撤过均线， 且三指标多数不满足条件
             if (
               (k.close - ma.currentValue) * position.direction < 0 && ds.count(
