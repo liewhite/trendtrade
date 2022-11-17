@@ -112,7 +112,7 @@ class MasStrategy(
         } else if (profitForAvgSize > 1) {
             // 浮盈大于1倍size， 保本出
             (maxSl(oldSl, p.openAt + profit * 0.2 * p.direction, p.direction), "达到1倍波动")
-        } else if (profitForAvgSize <= 0.5) {
+        } else if (profitForAvgSize <= 1) {
             // 几乎无盈利或浮亏， 0.8倍平均size止损
             // 当波动越来越小， 止损也越来越小
             // 反之， 波动大， 止损就大， 跟随市场
@@ -129,7 +129,8 @@ class MasStrategy(
         positionMgr.updateSl(Some(newSl))
     }
 
-    def currentMas         = Vector(shortMa.currentValue, midMa.currentValue, longMa.currentValue)
+    def currentMas = Vector(shortMa.currentValue, midMa.currentValue, longMa.currentValue)
+
     def checkSl(): Boolean = {
         if (positionMgr.hasPosition) {
             val k                 = klines.data(0)

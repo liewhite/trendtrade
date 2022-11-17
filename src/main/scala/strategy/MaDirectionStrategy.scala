@@ -14,9 +14,10 @@ import notifier.Notify
 import java.time.ZonedDateTime
 
 
-// 均线方向策略
-// 均线族方向一致
-// 价格里最远的均线距离不超过K
+// 突破均线， 且与均线同向, 也可以是阴线突破
+// 设定初始止损
+// 只要是浮盈状态就不在盘中止盈
+// 浮动止盈,必须回撤到均线， 均线上不止盈
 class MaDirectionStrategy(
     symbol:          String,
     interval:        String,

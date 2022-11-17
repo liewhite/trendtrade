@@ -13,10 +13,13 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// macd trend(2), ma 同向
-// tick突破均线时开仓
-// 收盘跌破均线平仓
-class MaMacdStrategy(
+// macd kdj ma 三指标
+// macd.bar 小于前一个即可
+// 三指标同向， 且价格未偏离均线， 开仓
+// 平仓：
+// 1. 盘中浮亏固定止损
+// 2. 浮盈状态， 收盘时若回撤过均线， 且三指标多数不满足条件
+class MaMacdKdjStrategy(
     symbol:          String,
     interval:        String,
     maInterval:      Int,
@@ -28,8 +31,9 @@ class MaMacdStrategy(
     val klines      = KlineMetric()
     val ma          = MaMetric(klines, maInterval)
     val macd        = MacdMetric(klines)
-    // val kdj         = KdjMetric(klines)
+    val kdj         = KdjMetric(klines)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
+    val slFactor    = 0.5
 
     val logger = Logger("strategy")
 
@@ -55,7 +59,7 @@ class MaMacdStrategy(
         klines.tick(k)
         ma.tick(k)
         macd.tick(k)
-        // kdj.tick(k)
+        kdj.tick(k)
     }
 
     // 除当前K外的最近k线平均大小
@@ -74,54 +78,59 @@ class MaMacdStrategy(
         avgEntitySize
     }
 
-    def maAvgChange(): BigDecimal = {
-        val items = ma.data.take(20)
-        items.sliding(2).map(t => {
-            (t(0).value - t(1).value).abs
-        }).sum / items.length
+    def metrics = {
+        Vector(ma.maDirection(), macd.macdDirection(), kdj.dDirection())
     }
 
-    var lastTick: Kline = null
-
+    // 平仓：
+    // 1. 盘中浮亏固定止损
+    // 2. 浮盈状态， 收盘时若回撤过均线， 且三指标多数不满足条件
     def checkClose(): Unit = {
         if (!positionMgr.hasPosition) {
             return
         }
+        val as            = avgSize()
+        val position      = positionMgr.currentPosition.get
         val k             = klines.current
         val pDirection    = positionMgr.currentPosition.get.direction
         val maValue       = ma.currentValue
         val macdDirection = macd.macdBarTrend(2)
-        // 收盘跌破均线, 且macd 反向
-        if (k.end && (k.close - maValue) * pDirection < 0 && macdDirection == -pDirection) {
-            positionMgr.closeCurrent(k, "指标不支持持仓方向")
+        if (!k.end) {
+            if ((k.close - position.openAt) * position.direction < -as * slFactor) {
+                positionMgr.closeCurrent(k, "盘中止损")
+            }
+        } else {
+            val ds = metrics
+            // 浮盈状态， 收盘时若回撤过均线， 且三指标多数不满足条件
+            if (
+              (k.close - ma.currentValue) * position.direction < 0 && ds.count(
+                _ == position.direction
+              ) < 2
+            ) {
+                positionMgr.closeCurrent(k, "收盘止损")
+            }
         }
     }
 
     def doTick(k: Kline, history: Boolean = false): Unit = {
         metricTick(k)
         // 忽略历史数据， 只处理实时数据
-        if (!history && klines.data.length >= 20 && lastTick != null) {
+        if (!history && klines.data.length >= 20) {
             checkClose()
-
-            val direction = if (ma.currentValue == 1 && macd.macdBarTrend(2) == 1) {
-                1
-            } else if (ma.currentValue == -1 && macd.macdBarTrend(2) == -1) {
-                -1
-            } else {
-                0
-            }
             val as        = avgSize()
+            val ms = metrics
 
-            val lastMa = if (lastTick.end) {
-                ma.data(1).value
-            } else {
-                ma.currentValue
+            val direction = if(ms.forall(_ == 1)) {
+                1
+            }else if(ms.forall(_ == -1)) {
+                -1
+            }else {
+                0
             }
 
             if (
               direction != 0 &&
-              (k.close - ma.currentValue) * direction > 0 &&
-              (lastTick.close - lastMa) * direction <= 0
+              (k.close - ma.currentValue) * direction < slFactor * as
             ) {
                 if (
                   positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
@@ -137,12 +146,9 @@ class MaMacdStrategy(
                       None,
                       false
                     )
-
                 }
             }
         }
-
-        lastTick = k
     }
 
     def tick(k: Kline, history: Boolean = false): Unit = {

@@ -14,10 +14,10 @@ import notifier.Notify
 import java.time.ZonedDateTime
 
 // 双均线策略
-// 短期均线 - 长期均线 为方向， 比如短期均线在长期均线上方， 则只开多单
-// 价格盘中突破长期均线时开仓, 收盘跌破长期均线时平仓
-// 出现反向信号， 平仓反手
-// 跟踪止盈
+// 均线至少相距0.3as时
+// 从下向上突破最小的均线时开多， 从上向下突破最大的均线时开空(吃震荡)
+// 均线距离小于0.3as时
+// 突破最大均线时
 class DoubleMaStrategy(
     symbol:          String,
     interval:        String,

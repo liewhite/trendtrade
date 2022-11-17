@@ -77,12 +77,10 @@ def start()              = {
     val watchSymbols = validSymbols ++ currentHoldingSymbol
 
     val strategies = watchSymbols.map(s => {
-        val bot = MasStrategy(
+        val bot = MaMacdKdjStrategy(
           s,
           interval,
           cfg.shortMa,
-          cfg.midMa,
-          cfg.longMa,
           cfg.maxHolds,
           binanceApi,
           notifyBot,

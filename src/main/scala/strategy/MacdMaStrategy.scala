@@ -13,7 +13,10 @@ import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
 
-// 均线下金叉
+// 策略必须要有对称性， 即多空之间不能有重叠， 不能某个价位同时满足双边持仓
+// 比如多持有中， 不会在多单出现平仓信号前出现开空信号
+// 60均线下macd金叉
+// 只要还在金叉区间， 就不平仓
 class MacdMaStrategy(
     symbol:          String,
     interval:        String,

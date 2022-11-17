@@ -130,7 +130,7 @@ class PositionMgr(
 
             logger.info(msg)
             ntf.sendNotify(msg)
-            currentPosition = Some(
+            this.currentPosition = Some(
               Position(
                 quantity,
                 k.datetime,
