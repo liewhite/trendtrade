@@ -139,7 +139,12 @@ class MaMacdKdjStrategy(
                 if (
                   positionMgr.hasPosition && positionMgr.currentPosition.get.direction != direction
                 ) {
-                    positionMgr.closeCurrent(k, "平仓反手")
+                    val p = positionMgr.currentPosition.get
+                    val profit = ( k.close - p.openAt) * p.direction
+                    // 浮盈或者浮亏超过 slFactor才反手
+                    if(  profit > 0 ||  profit < -slFactor * as) {
+                        positionMgr.closeCurrent(k, "平仓反手")
+                    }
                 }
                 if (!positionMgr.hasPosition) {
                     positionMgr.open(
