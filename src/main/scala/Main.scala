@@ -1,14 +1,16 @@
 import scala.collection.mutable
 import sttp.client3.okhttp.quick._
-import io.github.liewhite.json.{*, given}
 import strategy.*
 import binance.*
-import io.github.liewhite.config.loadConfig
-import io.github.liewhite.json.given
 import java.time.Duration
 import notifier.FeishuNotify
 import com.typesafe.scalalogging.Logger
-import cats.syntax.validated
+import common.loadConfig
+import zio.ZIO
+import zio.Config
+import zio.ZIOAppDefault
+import zio.Scope
+import zio.ZIOAppArgs
 
 case class AppConfig(
     interval:         String,
@@ -24,20 +26,22 @@ case class AppConfig(
     heartBeatWebhook: String,
     exceptionWebhook: String,
     leastSupply:      BigDecimal,
-    blackList:        Vector[String]
+    // blackList:        Vector[String]
 )
 
 val logger = Logger("main")
 
-def loadCfg(): AppConfig = {
+def loadCfg(): ZIO[Any, Config.Error, AppConfig] = {
     logger.info("start binance bot...")
     logger.info("load config")
     val cfg = loadConfig[AppConfig]("config.yaml")
+    // val cfg: AppConfig = null
     logger.info("create notify bot")
     cfg
+    // ???
 }
-def start()              = {
-    val cfg = loadCfg()
+
+def start(cfg: AppConfig)              = {
 
     val notifyBot    = FeishuNotify(cfg.notifyWebhook)
     val heartBeatBot = FeishuNotify(cfg.heartBeatWebhook)
@@ -57,12 +61,12 @@ def start()              = {
 
     val interval = cfg.interval
 
-    logger.info(s"blackList: ${cfg.blackList}")
+    // logger.info(s"blackList: ${cfg.blackList}")
 
     val allSymbols = binanceApi
         .allSymbol()
         .filter(_.symbol.endsWith(cfg.quoteSymbol))
-        .filter(item => !cfg.blackList.contains(item.symbol))
+        // .filter(item => !cfg.blackList.contains(item.symbol))
 
     val symbolsAndOpened = allSymbols.map(item => {
         val value = binanceApi.getOpenInterest(item.symbol)
@@ -97,6 +101,12 @@ def start()              = {
     })
 }
 
-@main def main: Unit = {
-    start()
+object Main extends ZIOAppDefault {
+    def run: ZIO[Any & (ZIOAppArgs & Scope), Any, Any] = {
+        for {
+            cfg <- loadCfg()
+        } yield {
+            start(cfg)
+        }
+    }
 }

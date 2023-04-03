@@ -1,13 +1,12 @@
 package data
 
 import sttp.client3.okhttp.quick._
-import io.github.liewhite.json.{*, given}
 import strategy.Kline
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
-import scala.concurrent.java8.FuturesConvertersImpl.P
+import zio.json.*
 
 val rootUrl = "https://fapi.binance.com"
 
@@ -23,7 +22,7 @@ def getLatest500K(symbol: String, interval: String): List[Kline] = {
         .send(backend)
 
     response.body
-        .fromJsonMust[List[
+        .fromJson[List[
           (
               Long,
               String,
@@ -38,7 +37,7 @@ def getLatest500K(symbol: String, interval: String): List[Kline] = {
               String,
               String
           )
-        ]]
+        ]].toOption.get
         .map(item =>
             Kline(
               ZonedDateTime
@@ -68,7 +67,7 @@ def getSymbolK(symbol: String, interval: String, limit: Int = 1500): List[Kline]
         .send(backend)
 
     response.body
-        .fromJsonMust[List[
+        .fromJson[List[
           (
               Long,
               String,
@@ -83,7 +82,7 @@ def getSymbolK(symbol: String, interval: String, limit: Int = 1500): List[Kline]
               String,
               String
           )
-        ]]
+        ]].toOption.get
         .map(item =>
             Kline(
               ZonedDateTime

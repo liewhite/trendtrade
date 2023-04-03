@@ -1,9 +1,9 @@
 package data
 
 import sttp.client3.okhttp.quick._
-import io.github.liewhite.json.{*, given}
 import strategy.Kline
 import java.time.ZonedDateTime
+import zio.json.*
 
 case class HttpKline(
     datetime: String,
@@ -13,7 +13,7 @@ case class HttpKline(
     close:    BigDecimal,
     hold:     BigDecimal,
     volume:   BigDecimal
-)
+) derives JsonDecoder
 
 def getSymbol5minK(symbol: String): List[Kline] = {
     val response = quickRequest
@@ -22,7 +22,7 @@ def getSymbol5minK(symbol: String): List[Kline] = {
         )
         .send(backend)
     response.body
-        .fromJsonMust[List[HttpKline]]
+        .fromJson[List[HttpKline]].toOption.get
         .map(item =>
             Kline(
               ZonedDateTime.parse(item.datetime.replace(" ", "T")),

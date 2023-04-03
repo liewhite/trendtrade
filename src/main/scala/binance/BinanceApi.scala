@@ -3,7 +3,6 @@ package binance
 import sttp.client3.okhttp.quick._
 import common.ExecutionPool.e
 import scala.concurrent.duration.*
-import io.github.liewhite.json.{*, given}
 import scala.collection.concurrent.{TrieMap => CMap}
 import sttp.model.Uri
 import javax.crypto.Mac
@@ -13,90 +12,86 @@ import java.security.MessageDigest
 import java.math.BigInteger
 import org.apache.commons.codec.binary.Hex
 import scala.collection.concurrent
-import java.time.Duration
-import okhttp3.Request
-import okhttp3.OkHttpClient
-import okhttp3.WebSocketListener
-import okhttp3.WebSocket
-import okhttp3.Response
+import okhttp3.*
 import scala.concurrent.*
 import com.typesafe.scalalogging.Logger
 import strategy.Kline
-import java.time.Instant
-import java.time.ZoneId
 import notifier.Notify
-import cats.syntax.validated
-
-// import com.typesafe.lo
+import zio.json.*
+import java.time.*
+import java.time.Duration
 
 enum TradeSide    {
     case BUY
     case SELL
 }
+
 enum PositionSide {
     case LONG
     case SHORT
 }
+
 enum MarginType   {
     case ISOLATED
     case CROSSED
 }
-case class OpenOrder(
-    symbol:   String,
-    `type`:   String,
-    quantity: String,
-    side:     TradeSide
-)
 
-case class StopOrder(
-    symbol:      String,
-    `type`:      String,
-    quantity:    String,
-    side:        TradeSide,
-    stopPrice:   String,
-    timeInForce: String,
-    reduceOnly:  String
-)
+// case class OpenOrder(
+//     symbol:   String,
+//     `type`:   String,
+//     quantity: String,
+//     side:     TradeSide
+// ) derives JsonDecoder
+
+// case class StopOrder(
+//     symbol:      String,
+//     `type`:      String,
+//     quantity:    String,
+//     side:        TradeSide,
+//     stopPrice:   String,
+//     timeInForce: String,
+//     reduceOnly:  String
+// ) derives JsonDecoder
 
 case class BalanceResponse(
     asset:            String,
     balance:          String,
     availableBalance: String
-)
+) derives JsonDecoder
 case class OrderResponse(
     orderId: Long
-)
+) derives JsonDecoder,JsonEncoder
 case class ListenKeyResponse(
     listenKey: String
-)
+) derives JsonDecoder
 
 case class OrderFillDetail(
     i: Long,
     X: String
-)
+) derives JsonDecoder
 
 case class OrderFillResponse(
     e: String,
     o: OrderFillDetail
-)
+) derives JsonDecoder
 case class PriceResponse(
     price: String
-)
+) derives JsonDecoder
 case class AccountInfoResponse(
     positions: Vector[AccountInfoResponsePosition]
-)
+) derives JsonDecoder
 case class AccountInfoResponsePosition(
     symbol:      String,
     entryPrice:  String,
     // 负数表示空单?
     positionAmt: String
-)
+) derives JsonDecoder
 case class PositionFromBinance(
     symbol:      String,
     entryPrice:  BigDecimal,
     // 负数表示空单
     positionAmt: BigDecimal
-)
+) derives JsonDecoder
 case class StreamKlineResponseDetail(
     t: Long, // 以开始时间为准
     // T: Long,
@@ -106,41 +101,42 @@ case class StreamKlineResponseDetail(
     c: String,
     v: String,
     x: Boolean
-)
+) derives JsonDecoder
 
 case class StreamKlineResponse(
     k: StreamKlineResponseDetail
-)
+) derives JsonDecoder
 case class SymbolMetaFilter(
     filterType: String,
     tickSize:   Option[String],
     stepSize:   Option[String]
-)
+) derives JsonDecoder
 
 case class SymbolMetaResponseItem(
     symbol:       String,
     contractType: String,
     filters:      Vector[SymbolMetaFilter]
-)
+) derives JsonDecoder
 
 case class SymbolMetaResponse(
     symbols: Vector[SymbolMetaResponseItem]
-)
+) derives JsonDecoder
+
 case class OpenInterestResponse(
     sumOpenInterestValue: String
-)
+) derives JsonDecoder
 
 case class SymbolMeta(
     symbol:    String,
     stepSize:  BigDecimal,
     priceStep: BigDecimal
-)
+) derives JsonDecoder
 case class TradeResponse(
     symbol: String,
     price:  String,
     side:   String,
     time:   Long
-)
+) derives JsonDecoder
 
 trait BinanceApi(
     val apiKey:    String,
@@ -177,7 +173,7 @@ trait BinanceApi(
                     )
                     .send(backend)
 
-                val res = response.body.fromJsonMust[SymbolMetaResponse]
+                val res = response.body.fromJson[SymbolMetaResponse].toOption.get
                 symbolMetas = res.symbols
                     .filter(_.contractType == "PERPETUAL")
                     .map(item => {
@@ -216,7 +212,7 @@ trait BinanceApi(
                     )
                     .send(backend)
 
-                val res = response.body.fromJsonMust[SymbolMetaResponse]
+                val res = response.body.fromJson[SymbolMetaResponse].toOption.get
                 symbolMetas = res.symbols
                     .filter(_.contractType == "PERPETUAL")
                     .map(item => {
@@ -260,7 +256,7 @@ trait BinanceApi(
                   logger.info("market stream connected")
               }
               override def onMessage(s: WebSocket, x: String): Unit = {
-                  val res = x.fromJsonMust[StreamKlineResponse]
+                  val res = x.fromJson[StreamKlineResponse].toOption.get
                   // 记录心跳时间
                   heartBeat.update(symbol, ZonedDateTime.now)
                   // logger.info(s"market info: ${res}")
@@ -314,7 +310,7 @@ trait BinanceApi(
             .send(backend)
 
         response.body
-            .fromJsonMust[List[
+            .fromJson[List[
               (
                   Long,
                   String,
@@ -329,7 +325,7 @@ trait BinanceApi(
                   String,
                   String
               )
-            ]]
+            ]].toOption.get
             .map(item =>
                 Kline(
                   ZonedDateTime
@@ -355,7 +351,7 @@ trait BinanceApi(
             )
             .send(backend)
         response.body
-            .fromJsonMust[AccountInfoResponse]
+            .fromJson[AccountInfoResponse].toOption.get
             .positions
             .map(item => {
                 PositionFromBinance(
@@ -384,7 +380,7 @@ trait BinanceApi(
             .send(backend)
 
         response.body
-            .fromJsonMust[Vector[TradeResponse]]
+            .fromJson[Vector[TradeResponse]].toOption.get
             .filter(_.symbol == symbol)
     }
     def getSymbolPrice(symbol: String): BigDecimal       = {
@@ -396,7 +392,7 @@ trait BinanceApi(
               apiKey
             )
             .send(backend)
-        val res  = lres.body.fromJsonMust[PriceResponse]
+        val res  = lres.body.fromJson[PriceResponse].toOption.get
         return BigDecimal(res.price)
     }
 
@@ -450,7 +446,7 @@ trait BinanceApi(
             .send(backend)
 
         // logger.info(s"openInterest for ${symbol}: ${response.body}")
-        val res = response.body.fromJsonMust[Vector[OpenInterestResponse]]
+        val res = response.body.fromJson[Vector[OpenInterestResponse]].toOption.get
         if (res.isEmpty) {
             0
         } else {
@@ -468,7 +464,7 @@ trait BinanceApi(
               apiKey
             )
             .send(backend)
-        val res     = lres.body.fromJsonMust[Vector[BalanceResponse]]
+        val res     = lres.body.fromJson[Vector[BalanceResponse]].toOption.get
         val busdRes = res.filter(_.asset == quoteSymbol)
         if (busdRes.isEmpty) {
             (0, 0)
@@ -531,7 +527,7 @@ trait BinanceApi(
             )
             .send(backend)
         logger.info(s"send order response: ${lres.body}")
-        val orderRes        = lres.body.fromJsonMust[Vector[OrderResponse]]
+        val orderRes        = lres.body.fromJson[Vector[OrderResponse]].toOption.get
         orders.addOne(orderRes(0).orderId, false)
         var maxTry          = 25
         while (orders.get(orderRes(0).orderId).isEmpty && maxTry > 0) {
@@ -591,7 +587,7 @@ trait BinanceApi(
                 )
                 .send(backend)
             logger.info(s"send order response: ${lres.body}")
-            val orderRes  = lres.body.fromJsonMust[Vector[OrderResponse]]
+            val orderRes  = lres.body.fromJson[Vector[OrderResponse]].toOption.get
             logger.info("sl tp order response: " + orderRes.toJson)
         }
     }
@@ -607,7 +603,7 @@ trait BinanceApi(
             )
             .send(backend)
         try {
-            val key = lres.body.fromJsonMust[ListenKeyResponse].listenKey
+            val key = lres.body.fromJson[ListenKeyResponse].toOption.get.listenKey
             listenKey = key
         } catch {
             case e: Exception => {
@@ -621,12 +617,12 @@ trait BinanceApi(
         // 获取listen key
         if (updateKey) {
             updateListenKey()
-            Future {
+            (Future {
                 while (true) {
                     Thread.sleep(1000 * 60 * 30)
                     updateListenKey()
                 }
-            }
+            })
         }
 
         val client = new OkHttpClient()
@@ -643,7 +639,7 @@ trait BinanceApi(
 
               override def onMessage(s: WebSocket, x: String): Unit         = {
                   try {
-                      val res = x.fromJsonMust[OrderFillResponse]
+                      val res = x.fromJson[OrderFillResponse].toOption.get
                       if (res.e == "ORDER_TRADE_UPDATE" && res.o.X == "FILLED") {
                           logger.info(s"order filled: ${res.o.i}")
                           orders.update(res.o.i, true)

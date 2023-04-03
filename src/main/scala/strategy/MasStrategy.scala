@@ -12,7 +12,6 @@ import java.time.ZoneId
 import java.time.Duration
 import notifier.Notify
 import java.time.ZonedDateTime
-import cats.instances.long
 
 // 只朝k线方向开仓， 比如均线纠缠了， 但是并不会在一根k线内来回开仓
 // 浮动止盈止损, 或者反向信号出现，直接反手
@@ -35,7 +34,7 @@ class MasStrategy(
     val midMa       = MaMetric(klines, midMaInterval)
     val longMa      = MaMetric(klines, longMaInterval)
     val positionMgr = PositionMgr(symbol, trader, maxHold, ntf, exceptionNotify)
-    val slFactor    = 0.5
+    val slFactor    = 0.618
 
     val logger = Logger("strategy")
 

@@ -2,17 +2,16 @@ package notifier
 
 import sttp.client3.okhttp.quick._
 import com.typesafe.scalalogging.Logger
-import io.github.liewhite.json.{*, given}
 import scala.concurrent.Future
-import common.ExecutionPool.e
+import zio.json.*
 
 case class FeishuMessageContent(
     text: String
-)
+) derives JsonEncoder
 case class FeishuMessage(
     msg_type: String = "text",
     content:  FeishuMessageContent
-)
+) derives JsonEncoder
 
 class FeishuNotify(webhook: String) extends Notify {
     val logger                           = Logger("feishu")
